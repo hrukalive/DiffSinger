@@ -31,13 +31,13 @@ class AcousticDataset(BaseDataset):
         self.need_speed = hparams.get('use_speed_embed', False)
         self.need_spk_id = hparams['use_spk_id']
 
-    def collater(self, samples):
+    def collater(self, samples, max_len):
         batch = super().collater(samples)
 
-        tokens = utils.collate_nd([s['tokens'] for s in samples], 0)
-        f0 = utils.collate_nd([s['f0'] for s in samples], 0.0)
-        mel2ph = utils.collate_nd([s['mel2ph'] for s in samples], 0)
-        mel = utils.collate_nd([s['mel'] for s in samples], 0.0)
+        tokens = utils.collate_nd([s['tokens'] for s in samples], 0, max_len)
+        f0 = utils.collate_nd([s['f0'] for s in samples], 0.0, max_len)
+        mel2ph = utils.collate_nd([s['mel2ph'] for s in samples], 0, max_len)
+        mel = utils.collate_nd([s['mel'] for s in samples], 0.0, max_len)
         batch.update({
             'tokens': tokens,
             'mel2ph': mel2ph,
@@ -45,7 +45,7 @@ class AcousticDataset(BaseDataset):
             'f0': f0,
         })
         for v_name, v_pad in self.required_variances.items():
-            batch[v_name] = utils.collate_nd([s[v_name] for s in samples], v_pad)
+            batch[v_name] = utils.collate_nd([s[v_name] for s in samples], v_pad, max_len)
         if self.need_key_shift:
             batch['key_shift'] = torch.FloatTensor([s['key_shift'] for s in samples])[:, None]
         if self.need_speed:

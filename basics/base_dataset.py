@@ -22,30 +22,31 @@ class BaseDataset(Dataset):
             the index function.
     """
 
-    def __init__(self, prefix):
+    def __init__(self, prefix, preload):
         super().__init__()
         self.prefix = prefix
         self.data_dir = hparams['binary_data_dir']
         self.sizes = np.load(os.path.join(self.data_dir, f'{self.prefix}.lengths'))
-        self.indexed_ds = IndexedDataset(self.data_dir, self.prefix)
-
-    @property
-    def _sizes(self):
-        return self.sizes
+        self._indexed_ds = IndexedDataset(self.data_dir, self.prefix)
+        if preload:
+            self.indexed_ds = []
+            for i in range(len(self._indexed_ds)):
+                self.indexed_ds.append(self._indexed_ds[i])
+            del self._indexed_ds
+        else:
+            self.indexed_ds = self._indexed_ds
 
     def __getitem__(self, index):
         return self.indexed_ds[index]
 
     def __len__(self):
-        return len(self._sizes)
+        return len(self.sizes)
 
     def num_frames(self, index):
-        return self.size(index)
+        return self.sizes[index]
 
     def size(self, index):
-        """Return an example's size as a float or tuple. This value is used when
-        filtering a dataset with ``--max-positions``."""
-        return self._sizes[index]
+        return self.sizes[index]
 
     def collater(self, samples):
         return {
