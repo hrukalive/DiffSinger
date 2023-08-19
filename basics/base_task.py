@@ -4,6 +4,7 @@ import pathlib
 import shutil
 import sys
 from datetime import datetime
+from functools import partial
 from typing import Dict
 
 import matplotlib
@@ -76,6 +77,7 @@ class BaseTask(pl.LightningModule):
         self.model = None
         self.skip_immediate_validation = False
         self.skip_immediate_ckpt_save = False
+        self.use_tpu = isinstance(self.trainer.accelerator, pl.accelerators.XLAAccelerator)
 
         self.valid_losses: Dict[str, Metric] = {
             'total_loss': MeanMetric()
@@ -96,8 +98,8 @@ class BaseTask(pl.LightningModule):
             self.load_finetune_ckpt(self.load_pre_train_model())
         self.print_arch()
         self.build_losses_and_metrics()
-        self.train_dataset = self.dataset_cls(hparams['train_set_name'])
-        self.valid_dataset = self.dataset_cls(hparams['valid_set_name'])
+        self.train_dataset = self.dataset_cls(hparams['train_set_name'], preload=self.use_tpu)
+        self.valid_dataset = self.dataset_cls(hparams['valid_set_name'], preload=self.use_tpu)
 
     def get_need_freeze_state_dict_key(self, model_state_dict) -> list:
         key_list = []
@@ -334,20 +336,28 @@ class BaseTask(pl.LightningModule):
             num_replicas=(self.trainer.distributed_sampler_kwargs or {}).get('num_replicas', 1),
             rank=(self.trainer.distributed_sampler_kwargs or {}).get('rank', 0),
             sort_by_similar_size=hparams['sort_by_len'],
+            batch_by_size=not self.use_tpu,
             required_batch_count_multiple=hparams['accumulate_grad_batches'],
             shuffle_sample=True,
             shuffle_batch=False,
+            drop_last=self.use_tpu,
             seed=hparams['seed']
         )
-        return torch.utils.data.DataLoader(self.train_dataset,
-                                           collate_fn=self.train_dataset.collater,
-                                           batch_sampler=self.training_sampler,
-                                           num_workers=hparams['ds_workers'],
-                                           prefetch_factor=hparams['dataloader_prefetch_factor'],
-                                           pin_memory=True,
-                                           persistent_workers=True)
+        return torch.utils.data.DataLoader(
+            self.train_dataset,
+            collate_fn=partial(
+                self.train_dataset.collater,
+                max_len=max(max(self.valid_dataset), max(self.train_dataset.sizes)) if self.use_tpu else None
+            ),
+            batch_sampler=self.training_sampler,
+            num_workers=hparams['ds_workers'],
+            prefetch_factor=hparams['dataloader_prefetch_factor'],
+            pin_memory=True,
+            persistent_workers=True
+        )
 
     def val_dataloader(self):
+        use_tpu = isinstance(self.trainer.accelerator, pl.accelerators.XLAAccelerator)
         sampler = DsEvalBatchSampler(
             self.valid_dataset,
             max_batch_frames=self.max_val_batch_frames,
@@ -355,12 +365,17 @@ class BaseTask(pl.LightningModule):
             rank=(self.trainer.distributed_sampler_kwargs or {}).get('rank', 0),
             batch_by_size=False
         )
-        return torch.utils.data.DataLoader(self.valid_dataset,
-                                           collate_fn=self.valid_dataset.collater,
-                                           batch_sampler=sampler,
-                                           num_workers=hparams['ds_workers'],
-                                           prefetch_factor=hparams['dataloader_prefetch_factor'],
-                                           shuffle=False)
+        return torch.utils.data.DataLoader(
+            self.valid_dataset,
+            collate_fn=partial(
+                self.valid_dataset.collater,
+                max_len=max(max(self.valid_dataset), max(self.train_dataset.sizes)) if self.use_tpu else None
+            ),
+            batch_sampler=sampler,
+            num_workers=hparams['ds_workers'],
+            prefetch_factor=hparams['dataloader_prefetch_factor'],
+            shuffle=False
+        )
 
     def test_dataloader(self):
         return self.val_dataloader()
