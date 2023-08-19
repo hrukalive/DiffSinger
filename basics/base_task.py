@@ -77,7 +77,6 @@ class BaseTask(pl.LightningModule):
         self.model = None
         self.skip_immediate_validation = False
         self.skip_immediate_ckpt_save = False
-        self.use_tpu = isinstance(self.trainer.accelerator, pl.accelerators.XLAAccelerator)
 
         self.valid_losses: Dict[str, Metric] = {
             'total_loss': MeanMetric()
@@ -98,6 +97,10 @@ class BaseTask(pl.LightningModule):
             self.load_finetune_ckpt(self.load_pre_train_model())
         self.print_arch()
         self.build_losses_and_metrics()
+        if hasattr(pl.accelerators, 'XLAAccelerator'):
+            self.use_tpu = isinstance(self.trainer.accelerator, pl.accelerators.XLAAccelerator)
+        else:
+            self.use_tpu = isinstance(self.trainer.accelerator, pl.accelerators.TPUAccelerator)
         self.train_dataset = self.dataset_cls(hparams['train_set_name'], preload=self.use_tpu)
         self.valid_dataset = self.dataset_cls(hparams['valid_set_name'], preload=self.use_tpu)
 
@@ -357,7 +360,6 @@ class BaseTask(pl.LightningModule):
         )
 
     def val_dataloader(self):
-        use_tpu = isinstance(self.trainer.accelerator, pl.accelerators.XLAAccelerator)
         sampler = DsEvalBatchSampler(
             self.valid_dataset,
             max_batch_frames=self.max_val_batch_frames,
