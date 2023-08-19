@@ -77,7 +77,6 @@ class BaseTask(pl.LightningModule):
         self.model = None
         self.skip_immediate_validation = False
         self.skip_immediate_ckpt_save = False
-        self.use_tpu = isinstance(self.trainer.accelerator, pl.accelerators.XLAAccelerator)
 
         self.valid_losses: Dict[str, Metric] = {
             'total_loss': MeanMetric()
@@ -361,7 +360,6 @@ class BaseTask(pl.LightningModule):
         )
 
     def val_dataloader(self):
-        use_tpu = isinstance(self.trainer.accelerator, pl.accelerators.XLAAccelerator)
         sampler = DsEvalBatchSampler(
             self.valid_dataset,
             max_batch_frames=self.max_val_batch_frames,
