@@ -350,7 +350,7 @@ class BaseTask(pl.LightningModule):
             self.train_dataset,
             collate_fn=partial(
                 self.train_dataset.collater,
-                max_len=max(max(self.valid_dataset), max(self.train_dataset.sizes)) if self.use_tpu else None
+                max_len=max(max(self.valid_dataset.sizes), max(self.train_dataset.sizes)) if self.use_tpu else None
             ),
             batch_sampler=self.training_sampler,
             num_workers=hparams['ds_workers'],
@@ -371,7 +371,7 @@ class BaseTask(pl.LightningModule):
             self.valid_dataset,
             collate_fn=partial(
                 self.valid_dataset.collater,
-                max_len=max(max(self.valid_dataset), max(self.train_dataset.sizes)) if self.use_tpu else None
+                max_len=max(max(self.valid_dataset.sizes), max(self.train_dataset.sizes)) if self.use_tpu else None
             ),
             batch_sampler=sampler,
             num_workers=hparams['ds_workers'],
