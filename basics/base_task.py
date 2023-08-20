@@ -338,7 +338,7 @@ class BaseTask(pl.LightningModule):
             max_batch_size=self.max_batch_size,
             num_replicas=(self.trainer.distributed_sampler_kwargs or {}).get('num_replicas', 1),
             rank=(self.trainer.distributed_sampler_kwargs or {}).get('rank', 0),
-            sort_by_similar_size=hparams['sort_by_len'],
+            sort_by_similar_size=not self.use_tpu and hparams['sort_by_len'],
             batch_by_size=not self.use_tpu,
             required_batch_count_multiple=hparams['accumulate_grad_batches'],
             shuffle_sample=True,

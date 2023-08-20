@@ -331,13 +331,15 @@ class DsTQDMProgressBar(TQDMProgressBar):
 
 
 def get_strategy(strategy):
-    if isinstance(strategy, str):
-        return strategy
-    elif isinstance(strategy, dict) and 'strategy_cls' in strategy:
-        return utils.build_object_from_class_name(
-            strategy['strategy_cls'],
-            Strategy,
-            **strategy
-        )
-    else:
-        raise ValueError(f"Invalid strategy, either a string (allowed in lightning) or a dict with 'strategy_cls' key is expected.")
+    if strategy['name'] == 'auto':
+        return 'auto'
+    
+    from lightning.pytorch.strategies import StrategyRegistry
+    if strategy['name'] not in StrategyRegistry:
+        available_names = ", ".join(sorted(StrategyRegistry.keys())) or "none"
+        raise ValueError(f"Invalid strategy name {strategy['name']}. Available names: {available_names}")
+
+    data = StrategyRegistry[strategy['name']]
+    params = data['init_params']
+    params.update({k: v for k, v in strategy.items() if k != 'name'})
+    return data['strategy'](**utils.filter_kwargs(params, data['strategy']))

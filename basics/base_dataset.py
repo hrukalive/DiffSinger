@@ -29,9 +29,7 @@ class BaseDataset(Dataset):
         self.sizes = np.load(os.path.join(self.data_dir, f'{self.prefix}.lengths'))
         self._indexed_ds = IndexedDataset(self.data_dir, self.prefix)
         if preload:
-            self.indexed_ds = []
-            for i in range(len(self._indexed_ds)):
-                self.indexed_ds.append(self._indexed_ds[i])
+            self.indexed_ds = [self._indexed_ds[i] for i in range(len(self._indexed_ds))]
             del self._indexed_ds
         else:
             self.indexed_ds = self._indexed_ds
