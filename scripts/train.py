@@ -16,7 +16,11 @@ set_hparams()
 if hparams['ddp_backend'] == 'nccl_no_p2p':
     print("Disabling NCCL P2P")
     os.environ['NCCL_P2P_DISABLE'] = '1'
-
+elif hparams['ddp_backend'] == 'gloo':
+    import lightning.fabric.utilities.distributed as L
+    def patch_func(device) -> str:
+        return 'gloo'
+    L._get_default_process_group_backend_for_device = patch_func
 
 def run_task():
     assert hparams['task_cls'] != ''
