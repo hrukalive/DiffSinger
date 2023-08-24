@@ -171,30 +171,21 @@ class DsBatchSampler(Sampler):
 
 
 class DsEvalBatchSampler(Sampler):
-    def __init__(self, dataset, max_batch_frames, max_batch_size, rank=None, batch_by_size=True) -> None:
+    def __init__(self, dataset, max_batch_size, num_replicas=None, rank=None) -> None:
         self.dataset = dataset
-        self.max_batch_frames = max_batch_frames
         self.max_batch_size = max_batch_size
-        self.rank = rank
-        self.batch_by_size = batch_by_size
-        self.batches = None
-        self.batch_size = max_batch_size
-        self.drop_last = False
 
-        if self.rank == 0:
-            indices = list(range(len(self.dataset)))
-            if self.batch_by_size:
-                self.batches = utils.batch_by_size(
-                    indices, self.dataset.num_frames,
-                    max_batch_frames=self.max_batch_frames, max_batch_size=self.max_batch_size
-                )
-            else:
-                self.batches = [
-                    indices[i:i + self.max_batch_size]
-                    for i in range(0, len(indices), self.max_batch_size)
-                ]
-        else:
-            self.batches = [[0]]
+        ceiled_count = math.ceil(len(dataset) / num_replicas) * num_replicas
+        indices = np.arange(0, ceiled_count)
+        indices[indices >= len(dataset)] = 0
+
+        indices = indices.reshape(-1, num_replicas).transpose()[rank].tolist()
+        self.batches = [
+            indices[i:i + max_batch_size]
+            for i in range(0, len(indices), max_batch_size)
+        ]
+
+        self.max_mel_len = max(self.dataset.sizes)
 
     def __iter__(self):
         return iter(self.batches)
