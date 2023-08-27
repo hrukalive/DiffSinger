@@ -148,8 +148,13 @@ def unpack_dict_to_list(samples):
 
 def filter_kwargs(dict_to_filter, kwarg_obj):
     import inspect
-
+    # torch.optim.Adam()
     sig = inspect.signature(kwarg_obj)
+    ppp=sig.parameters.values()
+    # cpx=list(ppp)[9]
+    # cpxx=cpx.POSITIONAL_OR_KEYWORD
+    # cpxx1 = cpx.kind
+    # cpxx11 = cpx.name
     filter_keys = [param.name for param in sig.parameters.values() if param.kind == param.POSITIONAL_OR_KEYWORD]
     filtered_dict = {filter_key: dict_to_filter[filter_key] for filter_key in filter_keys if
                      filter_key in dict_to_filter}

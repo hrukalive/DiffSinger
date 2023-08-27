@@ -10,11 +10,12 @@ import torch
 from torch import nn
 from tqdm import tqdm
 
+from modules.diffusion.unet import Unet
 from modules.diffusion.wavenet import WaveNet
 from utils.hparams import hparams
 
 DIFF_DENOISERS = {
-    'wavenet': WaveNet
+    'wavenet': WaveNet,'unet':Unet
 }
 
 
