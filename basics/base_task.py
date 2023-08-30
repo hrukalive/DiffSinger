@@ -89,6 +89,12 @@ class BaseTask(pl.LightningModule):
     ###########
     def setup(self, stage):
         self.phone_encoder = self.build_phone_encoder()
+        if hasattr(pl.accelerators, 'XLAAccelerator'):
+            self.use_tpu = isinstance(self.trainer.accelerator, pl.accelerators.XLAAccelerator)
+        else:
+            self.use_tpu = isinstance(self.trainer.accelerator, pl.accelerators.TPUAccelerator)
+        self.train_dataset = self.dataset_cls(hparams['train_set_name'], preload=self.use_tpu)
+        self.valid_dataset = self.dataset_cls(hparams['valid_set_name'], preload=self.use_tpu)
         self.model = self.build_model()
         # utils.load_warp(self)
         self.unfreeze_all_params()
@@ -98,12 +104,6 @@ class BaseTask(pl.LightningModule):
             self.load_finetune_ckpt(self.load_pre_train_model())
         self.print_arch()
         self.build_losses_and_metrics()
-        if hasattr(pl.accelerators, 'XLAAccelerator'):
-            self.use_tpu = isinstance(self.trainer.accelerator, pl.accelerators.XLAAccelerator)
-        else:
-            self.use_tpu = isinstance(self.trainer.accelerator, pl.accelerators.TPUAccelerator)
-        self.train_dataset = self.dataset_cls(hparams['train_set_name'], preload=self.use_tpu)
-        self.valid_dataset = self.dataset_cls(hparams['valid_set_name'], preload=self.use_tpu)
         self.num_replicas = (self.trainer.distributed_sampler_kwargs or {}).get('num_replicas', 1)
 
     def get_need_freeze_state_dict_key(self, model_state_dict) -> list:
