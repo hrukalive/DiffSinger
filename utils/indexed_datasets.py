@@ -62,9 +62,8 @@ class IndexedDatasetBuilder:
                 for k in self.allowed_attr
                 if k in item
             }
-        with self.lock:
-            item_no = self.counter
-            self.counter += 1
+        item_no = self.counter
+        self.counter += 1
         for k, v in item.items():
             if v is None:
                 continue
