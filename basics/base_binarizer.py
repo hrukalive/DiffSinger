@@ -104,8 +104,9 @@ class BaseBinarizer:
                 with open(path, 'r') as f:
                     m = {}
                     for line in f:
-                        line = line.strip().split()
-                        m[line[0]] = line[-1]
+                        original_phs, ret_ph = line.strip().split()
+                        for original_ph in original_phs.split(','):
+                            m[original_ph.strip()] = ret_ph.strip()
                     contents.append(m)
             else:
                 contents.append({})
