@@ -48,7 +48,7 @@ class IndexedDatasetBuilder:
     def __init__(self, path, prefix, allowed_attr=None):
         self.path = pathlib.Path(path) / f'{prefix}.data'
         self.prefix = prefix
-        self.dset = None
+        self.dset = h5py.File(self.path, 'w')
         self.counter = 0
         self.lock = multiprocessing.Lock()
         if allowed_attr is not None:
@@ -57,24 +57,23 @@ class IndexedDatasetBuilder:
             self.allowed_attr = None
 
     def add_item(self, item):
-        if self.dset is None:
-            self.dset = h5py.File(self.path, 'w')
         if self.allowed_attr is not None:
             item = {
                 k: item[k]
                 for k in self.allowed_attr
                 if k in item
             }
-        item_no = self.counter
-        self.counter += 1
+        with self.lock:
+            item_no = self.counter
+            self.counter += 1
         for k, v in item.items():
             if v is None:
                 continue
             self.dset.create_dataset(f'{item_no}/{k}', data=v)
+        return item_no
 
     def finalize(self):
-        if self.dset is not None:
-            self.dset.close()
+        self.dset.close()
 
 
 if __name__ == "__main__":
