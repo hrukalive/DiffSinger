@@ -187,7 +187,9 @@ pe_ckpt: checkpoints/xxx/model.pt  # pitch extractor model path (if it requires 
 
 ### Parselmouth
 
-[Parselmouth](https://github.com/YannickJadoul/Parselmouth) is the default pitch extractor in this repository. It is based on DSP algorithms, runs fast on CPU and can get accurate F0 on clean and normal recordings. To use parselmouth, simply include the following line in your configuration file:
+[Parselmouth](https://github.com/YannickJadoul/Parselmouth) is the default pitch extractor in this repository. It is based on DSP algorithms, runs fast on CPU and can get accurate F0 on clean and normal recordings.
+
+To use parselmouth, simply include the following line in your configuration file:
 
 ```yaml
 pe: parselmouth
@@ -195,7 +197,9 @@ pe: parselmouth
 
 ### RMVPE
 
-[RMVPE](https://github.com/Dream-High/RMVPE) (Robust Model for Vocal Pitch Estimation) is the state-of-the-art NN-based pitch estimation model for singing voice. It runs slower than parselmouth, consumes more memory, however uses CUDA to accelerate computation (if available) and produce better results on noisy recordings and edge cases. To enable RMVPE, put its `model.pt` in `checkpoints/rmvpe` and edit your configuration file:
+[RMVPE](https://github.com/Dream-High/RMVPE) (Robust Model for Vocal Pitch Estimation) is the state-of-the-art NN-based pitch estimation model for singing voice. It runs slower than parselmouth, consumes more memory, however uses CUDA to accelerate computation (if available) and produce better results on noisy recordings and edge cases.
+
+To enable RMVPE, download its pre-trained checkpoint from [here](https://github.com/openvpi/DiffSinger/releases/download/v2.1.0/rmvpe.zip), extract it into the `checkpoints/` folder and edit the configuration file:
 
 ```yaml
 pe: rmvpe
