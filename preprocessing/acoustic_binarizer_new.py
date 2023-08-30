@@ -13,7 +13,6 @@ import shutil
 
 import numpy as np
 import torch
-from joblib import Parallel, delayed
 from tqdm import tqdm
 
 from basics.base_binarizer import BaseBinarizer
@@ -29,6 +28,7 @@ from utils.binarizer_utils import (
 )
 from utils.hparams import hparams
 from utils.indexed_datasets import IndexedDatasetBuilder
+from utils.multiprocess_utils import chunked_multiprocess_run
 from utils.phoneme_utils import locate_dictionary
 
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -119,7 +119,7 @@ class AcousticBinarizerNew(BaseBinarizer):
         builder = IndexedDatasetBuilder(self.binary_data_dir, prefix=prefix, allowed_attr=self.data_attrs)
 
         for item_name, meta_data in self.meta_data_iterator(prefix):
-            args.append([item_name, meta_data, self.binarization_args])
+            args.append([prefix, item_name, meta_data, self.binarization_args])
 
         reverse_spk_map = {v: k for k, v in self.spk_map.items()}
         total_sec = {k: 0.0 for k in self.spk_map}
@@ -129,24 +129,29 @@ class AcousticBinarizerNew(BaseBinarizer):
             'spk_ids': {},
         }
 
-        def proc(arg):
-            item = self.process_item(prefix, *arg)
+        def postprocess(item):
+            nonlocal total_sec, extra_info
             if item is None:
-                return None, None, None, None
+                return
             item_no = builder.add_item(item)
-            return item_no, item['length'], item['spk_id'], item['seconds']
+            extra_info['lengths'][item_no] = item['length']
+            extra_info['seconds'][item_no] = item['seconds']
+            extra_info['spk_ids'][item_no] = item['spk_id']
+            total_sec[reverse_spk_map[item['spk_id']]] += item['seconds']
 
         try:
-            for item_no, item_len, item_spk_id, item_sec in tqdm(
-                Parallel(n_jobs=num_workers, prefer='threads', return_as='generator')(delayed(proc)(arg) for arg in args), total=len(args),
-                ncols=100
-            ):
-                if item_no is None:
-                    continue
-                extra_info['lengths'][item_no] = item_len
-                extra_info['seconds'][item_no] = round(item_sec, 3)
-                extra_info['spk_ids'][item_no] = item_spk_id
-                total_sec[reverse_spk_map[item_spk_id]] += item_sec
+            if num_workers > 0:
+                # code for parallel processing
+                for item in tqdm(
+                    chunked_multiprocess_run(self.process_item, args, num_workers=num_workers),
+                    total=len(args), ncols=100
+                ):
+                    postprocess(item)
+            else:
+                # code for single cpu processing
+                for a in tqdm(args, ncols=100):
+                    item = self.process_item(*a)
+                    postprocess(item)
             extra_info['lengths'] = list(map(lambda x: x[1], sorted(extra_info['lengths'].items(), key=lambda x: x[0])))
             extra_info['seconds'] = list(map(lambda x: x[1], sorted(extra_info['seconds'].items(), key=lambda x: x[0])))
             extra_info['spk_ids'] = list(map(lambda x: x[1], sorted(extra_info['spk_ids'].items(), key=lambda x: x[0])))
@@ -171,7 +176,7 @@ class AcousticBinarizerNew(BaseBinarizer):
         ref_len = np.percentile(sorted(total_sec.values()), 80)
         print(f'| {prefix} total duration: {sum(total_sec.values()):.3f}s')
         for k, v in sorted(total_sec.items(), key=lambda x: x[1], reverse=True):
-            if v < ref_len:
+            if v > 0 and v < ref_len:
                 print(f'|     {k}: {v:.3f}s ({ref_len / v:.2f}x)')
             else:
                 print(f'|     {k}: {v:.3f}s')
@@ -191,25 +196,17 @@ class AcousticBinarizerNew(BaseBinarizer):
                 'wav_fn': meta_data['wav_fn'],
                 'spk_id': meta_data['spk_id'],
                 'length': len(wav),
-                'seconds': len(wav) / hparams['audio_sample_rate'],
+                'seconds': round(seconds, 3),
                 'wav': wav,
                 'tokens': np.array(self.phone_encoder.encode(meta_data['ph_seq']), dtype=np.int64),
                 'ph_dur': np.array(meta_data['ph_dur']).astype(np.float32),
             }
-            if pitch_extractor is None:
-                pitch_extractor = initialize_pe()
-            gt_f0, uv = pitch_extractor.get_pitch(
-                wav, length, hparams, interp_uv=hparams['interp_uv']
-            )
-            if uv.all():  # All unvoiced
-                print(f'Skipped \'{item_name}\': empty gt f0')
-                return None
         elif prefix == 'valid':
             processed_input = {
                 'name': item_name,
                 'wav_fn': meta_data['wav_fn'],
                 'spk_id': meta_data['spk_id'],
-                'seconds': seconds,
+                'seconds': round(seconds, 3),
                 'length': length,
                 'mel': mel,
                 'tokens': np.array(self.phone_encoder.encode(meta_data['ph_seq']), dtype=np.int64),
@@ -220,49 +217,49 @@ class AcousticBinarizerNew(BaseBinarizer):
             processed_input['mel2ph'] = get_mel2ph_torch(
                 self.lr, torch.from_numpy(processed_input['ph_dur']), length, self.timestep, device=self.device
             ).cpu().numpy()
-
-            # get ground truth f0
-            if pitch_extractor is None:
-                pitch_extractor = initialize_pe()
-            gt_f0, uv = pitch_extractor.get_pitch(
-                wav, length, hparams, interp_uv=hparams['interp_uv']
-            )
-            if uv.all():  # All unvoiced
-                print(f'Skipped \'{item_name}\': empty gt f0')
-                return None
-            processed_input['f0'] = gt_f0.astype(np.float32)
-
-            if self.need_energy:
-                # get ground truth energy
-                energy = get_energy_librosa(wav, length, hparams).astype(np.float32)
-
-                if energy_smooth is None:
-                    energy_smooth = SinusoidalSmoothingConv1d(
-                        round(hparams['energy_smooth_width'] / self.timestep)
-                    ).eval().to(self.device)
-                energy = energy_smooth(torch.from_numpy(energy).to(self.device)[None])[0]
-
-                processed_input['energy'] = energy.cpu().numpy()
-
-            if self.need_breathiness:
-                # get ground truth breathiness
-                breathiness = get_breathiness_pyworld(wav, gt_f0 * ~uv, length, hparams).astype(np.float32)
-
-                if breathiness_smooth is None:
-                    breathiness_smooth = SinusoidalSmoothingConv1d(
-                        round(hparams['breathiness_smooth_width'] / self.timestep)
-                    ).eval().to(self.device)
-                breathiness = breathiness_smooth(torch.from_numpy(breathiness).to(self.device)[None])[0]
-
-                processed_input['breathiness'] = breathiness.cpu().numpy()
-
-            if hparams.get('use_key_shift_embed', False):
-                processed_input['key_shift'] = 0.
-
-            if hparams.get('use_speed_embed', False):
-                processed_input['speed'] = 1.
         else:
             raise NotImplementedError
+
+        # get ground truth f0
+        if pitch_extractor is None:
+            pitch_extractor = initialize_pe()
+        gt_f0, uv = pitch_extractor.get_pitch(
+            wav, length, hparams, interp_uv=hparams['interp_uv']
+        )
+        if uv.all():  # All unvoiced
+            print(f'Skipped \'{item_name}\': empty gt f0')
+            return None
+        processed_input['f0'] = gt_f0.astype(np.float32)
+
+        if self.need_energy:
+            # get ground truth energy
+            energy = get_energy_librosa(wav, length, hparams).astype(np.float32)
+
+            if energy_smooth is None:
+                energy_smooth = SinusoidalSmoothingConv1d(
+                    round(hparams['energy_smooth_width'] / self.timestep)
+                ).eval().to(self.device)
+            energy = energy_smooth(torch.from_numpy(energy).to(self.device)[None])[0]
+
+            processed_input['energy'] = energy.cpu().numpy()
+
+        if self.need_breathiness:
+            # get ground truth breathiness
+            breathiness = get_breathiness_pyworld(wav, gt_f0 * ~uv, length, hparams).astype(np.float32)
+
+            if breathiness_smooth is None:
+                breathiness_smooth = SinusoidalSmoothingConv1d(
+                    round(hparams['breathiness_smooth_width'] / self.timestep)
+                ).eval().to(self.device)
+            breathiness = breathiness_smooth(torch.from_numpy(breathiness).to(self.device)[None])[0]
+
+            processed_input['breathiness'] = breathiness.cpu().numpy()
+
+        if hparams.get('use_key_shift_embed', False):
+            processed_input['key_shift'] = 0.
+
+        if hparams.get('use_speed_embed', False):
+            processed_input['speed'] = 1.
 
         return processed_input
 
