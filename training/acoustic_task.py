@@ -14,8 +14,9 @@ from basics.base_vocoder import BaseVocoder
 from modules.losses.diff_loss import DiffusionNoiseLoss
 from modules.toplevel import DiffSingerAcoustic
 from modules.vocoders.registry import get_vocoder_cls
+from training.acoustic_dataset import AcousticTrainingDataset
 from utils.hparams import hparams
-from utils.plot import spec_to_figure, figure_to_image
+from utils.plot import figure_to_image, spec_to_figure
 
 matplotlib.use('Agg')
 
@@ -63,7 +64,8 @@ class AcousticDataset(BaseDataset):
 class AcousticTask(BaseTask):
     def __init__(self):
         super().__init__()
-        self.dataset_cls = AcousticDataset
+        self.dataset_train_cls = AcousticTrainingDataset
+        self.dataset_valid_cls = AcousticDataset
         self.use_vocoder = hparams['infer'] or hparams['val_with_vocoder']
         if self.use_vocoder:
             self.vocoder: BaseVocoder = get_vocoder_cls(hparams)()

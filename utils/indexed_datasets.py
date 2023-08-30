@@ -62,12 +62,14 @@ class IndexedDatasetBuilder:
                 for k in self.allowed_attr
                 if k in item
             }
-        item_no = self.counter
-        self.counter += 1
+        with self.lock:
+            item_no = self.counter
+            self.counter += 1
         for k, v in item.items():
             if v is None:
                 continue
             self.dset.create_dataset(f'{item_no}/{k}', data=v)
+        return item_no
 
     def finalize(self):
         self.dset.close()

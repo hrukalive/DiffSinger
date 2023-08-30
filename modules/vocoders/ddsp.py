@@ -213,3 +213,32 @@ class DDSP(BaseVocoder):
 
         mel = mel_extractor(x_t, keyshift=keyshift, speed=speed)
         return x, mel.squeeze(0).cpu().numpy()
+
+    @staticmethod
+    def wav2spec_direct(wav_torch, keyshift=0, speed=1, device=None):
+        if device is None:
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        sampling_rate = hparams['audio_sample_rate']
+        n_mel_channels = hparams['audio_num_mel_bins']
+        n_fft = hparams['fft_size']
+        win_length = hparams['win_size']
+        hop_length = hparams['hop_size']
+        mel_fmin = hparams['fmin']
+        mel_fmax = hparams['fmax']
+
+        # load input
+        x_t = wav_torch
+        x_t = x_t.unsqueeze(0).unsqueeze(0)  # (T,) --> (1, 1, T)
+
+        # mel analysis
+        mel_extractor = Audio2Mel(
+            hop_length=hop_length,
+            sampling_rate=sampling_rate,
+            n_mel_channels=n_mel_channels,
+            win_length=win_length,
+            n_fft=n_fft,
+            mel_fmin=mel_fmin,
+            mel_fmax=mel_fmax).to(device)
+
+        mel = mel_extractor(x_t, keyshift=keyshift, speed=speed)
+        return mel.squeeze(0)

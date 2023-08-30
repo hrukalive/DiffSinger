@@ -93,8 +93,8 @@ class BaseTask(pl.LightningModule):
             self.use_tpu = isinstance(self.trainer.accelerator, pl.accelerators.XLAAccelerator)
         else:
             self.use_tpu = isinstance(self.trainer.accelerator, pl.accelerators.TPUAccelerator)
-        self.train_dataset = self.dataset_cls(hparams['train_set_name'], preload=self.use_tpu)
-        self.valid_dataset = self.dataset_cls(hparams['valid_set_name'], preload=self.use_tpu)
+        self.train_dataset = self.dataset_train_cls(hparams['train_set_name'], preload=self.use_tpu)
+        self.valid_dataset = self.dataset_valid_cls(hparams['valid_set_name'], preload=self.use_tpu)
         self.model = self.build_model()
         # utils.load_warp(self)
         self.unfreeze_all_params()
@@ -212,6 +212,8 @@ class BaseTask(pl.LightningModule):
         raise NotImplementedError()
 
     def on_train_epoch_start(self):
+        if self.train_dataset and hasattr(self.train_dataset, 'set_device'):
+            self.train_dataset.set_device(self.device)
         if self.training_sampler is not None:
             self.training_sampler.set_epoch(self.current_epoch)
 

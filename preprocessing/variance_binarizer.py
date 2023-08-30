@@ -83,7 +83,7 @@ class VarianceBinarizer(BaseBinarizer):
             ds = ds[idx]
         return ds.get(attr)
 
-    def load_meta_data(self, raw_data_dir: pathlib.Path, ds_id, spk_id):
+    def load_meta_data(self, raw_data_dir: pathlib.Path, ph_map, ds_id, spk_id):
         meta_data_dict = {}
 
         for utterance_label in csv.DictReader(
@@ -108,7 +108,7 @@ class VarianceBinarizer(BaseBinarizer):
                 'ds_idx': item_idx,
                 'spk_id': spk_id,
                 'wav_fn': str(raw_data_dir / 'wavs' / f'{item_name}.wav'),
-                'ph_seq': require('ph_seq').split(),
+                'ph_seq': [ph_map.get(x, x) for x in require('ph_seq').split()],
                 'ph_dur': [float(x) for x in require('ph_dur').split()]
             }
 

@@ -168,6 +168,8 @@ class DsBatchSampler(Sampler):
 
     def set_epoch(self, epoch):
         self.epoch = epoch
+        if hasattr(self.dataset, 'set_epoch'):
+            self.dataset.set_epoch(epoch)
 
 
 class DsEvalBatchSampler(Sampler):

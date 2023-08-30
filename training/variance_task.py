@@ -67,7 +67,8 @@ def random_retake_masks(b, t, device):
 class VarianceTask(BaseTask):
     def __init__(self):
         super().__init__()
-        self.dataset_cls = VarianceDataset
+        self.dataset_train_cls = VarianceDataset
+        self.dataset_valid_cls = VarianceDataset
 
         self.use_spk_id = hparams['use_spk_id']
 
