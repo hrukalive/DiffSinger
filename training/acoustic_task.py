@@ -166,7 +166,6 @@ class AcousticTask(BaseTask):
         num_valid_plots = min(hparams['num_valid_plots'], len(self.valid_dataset))
         if data_idx_base < num_valid_plots and self.trainer.state.stage is RunningStage.VALIDATING:
             pred_mels = self.run_model(sample, infer=True)
-            print(self.global_rank, pred_mels.shape, sample['mel'].shape)
             vmin = hparams['mel_vmin']
             vmax = hparams['mel_vmax']
             spec_cat = torch.cat([(pred_mels - sample['mel']).abs() + vmin, sample['mel'], pred_mels], -1)
