@@ -152,7 +152,6 @@ class AcousticTrainingDataset(BaseDataset):
         self.breathiness_smooth.to(device)
 
     def set_epoch(self, epoch):
-        print(f'ACOUSTIC_DATASET set_epoch {epoch} {self.device}')
         self.epoch = epoch
         self.items = []
         self.sizes = []

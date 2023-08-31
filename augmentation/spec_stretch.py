@@ -113,7 +113,7 @@ class SpectrogramStretchAugmentation(BaseAugmentation):
             for v_name in VARIANCE_CHECKLIST:
                 if v_name in item:
                     aug_item[v_name] = torch.from_numpy(resample_align_curve(
-                        aug_item[v_name].numpy(),
+                        aug_item[v_name].cpu().numpy(),
                         original_timestep=self.timestep,
                         target_timestep=self.timestep * aug_item['speed'],
                         align_length=aug_item['length']
