@@ -91,7 +91,6 @@ class SpectrogramStretchAugmentation(BaseAugmentation):
         return aug_item
 
 
-    @require_same_keys
     def process_item_wav(self, item: dict, vocoder, wav, wav_torch, key_shift=0., speed=1., replace_spk_id=None, device='cpu') -> dict:
         aug_item = deepcopy(item)
         mel = vocoder.wav2spec_direct(wav_torch, keyshift=key_shift, speed=speed, device=device)

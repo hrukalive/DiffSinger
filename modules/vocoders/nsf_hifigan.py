@@ -115,8 +115,6 @@ class NsfHifiGAN(BaseVocoder):
 
     @staticmethod
     def wav2spec_direct(wav_torch, keyshift=0, speed=1, device=None):
-        if device is None:
-            device = 'cuda' if torch.cuda.is_available() else 'cpu'
         sampling_rate = hparams['audio_sample_rate']
         num_mels = hparams['audio_num_mel_bins']
         n_fft = hparams['fft_size']

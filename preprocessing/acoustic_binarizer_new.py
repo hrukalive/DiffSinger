@@ -235,25 +235,27 @@ class AcousticBinarizerNew(BaseBinarizer):
             # get ground truth energy
             energy = get_energy_librosa(wav, length, hparams).astype(np.float32)
 
-            if energy_smooth is None:
-                energy_smooth = SinusoidalSmoothingConv1d(
-                    round(hparams['energy_smooth_width'] / self.timestep)
-                ).eval().to(self.device)
-            energy = energy_smooth(torch.from_numpy(energy).to(self.device)[None])[0]
+            if prefix == 'valid':
+                if energy_smooth is None:
+                    energy_smooth = SinusoidalSmoothingConv1d(
+                        round(hparams['energy_smooth_width'] / self.timestep)
+                    ).eval().to(self.device)
+                energy = energy_smooth(torch.from_numpy(energy).to(self.device)[None])[0].cpu().numpy()
 
-            processed_input['energy'] = energy.cpu().numpy()
+            processed_input['energy'] = energy
 
         if self.need_breathiness:
             # get ground truth breathiness
             breathiness = get_breathiness_pyworld(wav, gt_f0 * ~uv, length, hparams).astype(np.float32)
 
-            if breathiness_smooth is None:
-                breathiness_smooth = SinusoidalSmoothingConv1d(
-                    round(hparams['breathiness_smooth_width'] / self.timestep)
-                ).eval().to(self.device)
-            breathiness = breathiness_smooth(torch.from_numpy(breathiness).to(self.device)[None])[0]
+            if prefix == 'valid':
+                if breathiness_smooth is None:
+                    breathiness_smooth = SinusoidalSmoothingConv1d(
+                        round(hparams['breathiness_smooth_width'] / self.timestep)
+                    ).eval().to(self.device)
+                breathiness = breathiness_smooth(torch.from_numpy(breathiness).to(self.device)[None])[0].cpu().numpy()
 
-            processed_input['breathiness'] = breathiness.cpu().numpy()
+            processed_input['breathiness'] = breathiness
 
         if hparams.get('use_key_shift_embed', False):
             processed_input['key_shift'] = 0.

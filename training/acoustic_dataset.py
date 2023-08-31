@@ -98,10 +98,10 @@ class AcousticTrainingDataset(BaseDataset):
         self.pitch_extractor = initialize_pe()
         self.energy_smooth = SinusoidalSmoothingConv1d(
             round(hparams['energy_smooth_width'] / self.timestep)
-        ).eval().to('cpu')
+        ).eval()
         self.breathiness_smooth = SinusoidalSmoothingConv1d(
             round(hparams['breathiness_smooth_width'] / self.timestep)
-        ).eval().to('cpu')
+        ).eval()
 
         self.lr = LengthRegulator()
         self.need_energy = hparams.get('use_energy_embed', False)
@@ -148,6 +148,8 @@ class AcousticTrainingDataset(BaseDataset):
     
     def set_device(self, device):
         self.device = device
+        self.energy_smooth.to(device)
+        self.breathiness_smooth.to(device)
 
     def set_epoch(self, epoch):
         print(f'ACOUSTIC_DATASET set_epoch {epoch} {self.device}')
@@ -327,6 +329,7 @@ class AcousticTrainingDataset(BaseDataset):
         token_lst = []
         ph_dur_lst = []
         sp_l, sp_r = item['sp']
+        total_sp = sp_l + sp_r
         if sp_l > 0:
             wav_lst.append(np.zeros((sp_l,)))
             token_lst.append([self.extra_info['sp_token']])
@@ -356,46 +359,72 @@ class AcousticTrainingDataset(BaseDataset):
             'ph_dur': torch.from_numpy(ph_dur).to(self.device),
         }
 
-        # get ground truth dur
-        processed_input['mel2ph'] = get_mel2ph_torch(
-            self.lr, processed_input['ph_dur'], length, self.timestep, device=self.device
-        )
-
-        # get ground truth f0
-        gt_f0, uv = self.pitch_extractor.get_pitch(
-            wav, length, hparams, interp_uv=hparams['interp_uv']
-        )
-        if uv.all():  # All unvoiced
-            raise RuntimeError("All unvoiced item found, should not exists.")
-        processed_input['f0'] = torch.from_numpy(gt_f0.astype(np.float32)).to(self.device)
-
         if self.need_energy:
             # get ground truth energy
-            energy = get_energy_librosa(wav, length, hparams).astype(np.float32)
-            if self.energy_smooth is None:
-                self.energy_smooth = SinusoidalSmoothingConv1d(
-                    round(hparams['energy_smooth_width'] / self.timestep)
-                ).eval().to(self.device)
-            energy = self.energy_smooth(torch.from_numpy(energy).to(self.device)[None])[0]
-            processed_input['energy'] = energy
+            energy_data = data['energy']
+            if total_sp > 0:
+                energy_lst = []
+                len_diff = length - energy_data.shape[0]
+                len_l = int(round(sp_l / total_sp * len_diff))
+                len_r = len_diff - len_l
+                if len_l > 0:
+                    energy_lst.append([-99.0] * len_l)
+                energy_lst.append(energy_data)
+                if len_r > 0:
+                    energy_lst.append([-99.0] * len_r)
+                energy = self.energy_smooth(torch.from_numpy(np.concatenate(energy_lst, dtype=np.float32)).to(self.device)[None])[0]
+                processed_input['energy'] = energy
+            else:
+                energy = self.energy_smooth(energy_data.to(self.device)[None])[0]
+                processed_input['energy'] = energy
 
         if self.need_breathiness:
             # get ground truth breathiness
-            breathiness = get_breathiness_pyworld(wav, gt_f0 * ~uv, length, hparams).astype(np.float32)
-            if self.breathiness_smooth is None:
-                self.breathiness_smooth = SinusoidalSmoothingConv1d(
-                    round(hparams['breathiness_smooth_width'] / self.timestep)
-                ).eval().to(self.device)
-            breathiness = self.breathiness_smooth(torch.from_numpy(breathiness).to(self.device)[None])[0]
-            processed_input['breathiness'] = breathiness
+            breathiness_data = data['breathiness']
+            if total_sp > 0:
+                breathiness_lst = []
+                len_diff = length - breathiness_data.shape[0]
+                len_l = int(round(sp_l / total_sp * len_diff))
+                len_r = len_diff - len_l
+                if len_l > 0:
+                    breathiness_lst.append([-99.0] * len_l)
+                breathiness_lst.append(breathiness_data)
+                if len_r > 0:
+                    breathiness_lst.append([-99.0] * len_r)
+                breathiness = self.breathiness_smooth(torch.from_numpy(np.concatenate(breathiness_lst, dtype=np.float32)).to(self.device)[None])[0]
+                processed_input['breathiness'] = breathiness
+            else:
+                breathiness = self.breathiness_smooth(breathiness_data.to(self.device)[None])[0]
+                processed_input['breathiness'] = breathiness
 
-        if hparams.get('use_key_shift_embed', False):
-            processed_input['key_shift'] = 0.
+        if not item['aug']:
+            # get ground truth dur
+            processed_input['mel2ph'] = get_mel2ph_torch(
+                self.lr, processed_input['ph_dur'], length, self.timestep, device=self.device
+            )
 
-        if hparams.get('use_speed_embed', False):
-            processed_input['speed'] = 1.
+            # get ground truth f0
+            f0_data = data['f0']
+            if total_sp > 0:
+                f0_lst = []
+                len_diff = length - f0_data.shape[0]
+                len_l = int(round(sp_l / total_sp * len_diff))
+                len_r = len_diff - len_l
+                if len_l > 0:
+                    f0_lst.append([f0_data[0]] * len_l)
+                f0_lst.append(f0_data)
+                if len_r > 0:
+                    f0_lst.append([f0_data[-1]] * len_r)
+                processed_input['f0'] = torch.from_numpy(np.concatenate(f0_lst, dtype=np.float32)).to(self.device)
+            else:
+                processed_input['f0'] = f0_data.to(self.device)
 
-        if item['aug']:
+            if hparams.get('use_key_shift_embed', False):
+                processed_input['key_shift'] = 0.
+
+            if hparams.get('use_speed_embed', False):
+                processed_input['speed'] = 1.
+        else:
             aug_out = item['aug']['func'].process_item_wav(
                 processed_input,
                 self.vocoder,
