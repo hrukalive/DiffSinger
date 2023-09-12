@@ -62,11 +62,7 @@ class DiffSingerAcoustic(ParameterAdaptorModule, CategorizedModule):
             timesteps=hparams['timesteps'],
             k_step=hparams['K_step'],
             denoiser_type=hparams['diff_decoder_type'],
-            denoiser_args={
-                'n_layers': hparams['residual_layers'],
-                'n_chans': hparams['residual_channels'],
-                'n_dilates': hparams['dilation_cycle_length'],
-            },
+            denoiser_args=hparams['decoder_arg'],
             spec_min=hparams['spec_min'],
             spec_max=hparams['spec_max']
         )
