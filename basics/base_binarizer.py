@@ -55,7 +55,8 @@ class BaseBinarizer:
 
         self.binarization_args = hparams['binarization_args']
         self.augmentation_args = hparams.get('augmentation_args', {})
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        # self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = 'cpu'
 
         self.spk_map = None
         self.spk_ids = hparams['spk_ids']

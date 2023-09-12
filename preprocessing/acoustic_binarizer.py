@@ -81,9 +81,9 @@ class AcousticBinarizer(BaseBinarizer):
     @torch.no_grad()
     def process_item(self, item_name, meta_data, binarization_args):
         if hparams['vocoder'] in VOCODERS:
-            wav, mel = VOCODERS[hparams['vocoder']].wav2spec(meta_data['wav_fn'])
+            wav, mel = VOCODERS[hparams['vocoder']].wav2spec(meta_data['wav_fn'],device='cpu')
         else:
-            wav, mel = VOCODERS[hparams['vocoder'].split('.')[-1]].wav2spec(meta_data['wav_fn'])
+            wav, mel = VOCODERS[hparams['vocoder'].split('.')[-1]].wav2spec(meta_data['wav_fn'],device='cpu')
         length = mel.shape[0]
         seconds = length * hparams['hop_size'] / hparams['audio_sample_rate']
         processed_input = {

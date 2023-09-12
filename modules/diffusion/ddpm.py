@@ -10,12 +10,20 @@ import torch
 from torch import nn
 from tqdm import tqdm
 
+from modules.diffusion.Dunet2sax import DUnetXav2
 from modules.diffusion.unet import Unet
+from modules.diffusion.unet2 import UnetX
+from modules.diffusion.unet2sa_natt_halfd import UnetXa_V
+from modules.diffusion.unet2sax import UnetXav2
+from modules.diffusion.unet3 import UnetX2
 from modules.diffusion.wavenet import WaveNet
+from modules.unet2sa import UnetXa
+from modules.unet2sax_self import UnetXav2sf
 from utils.hparams import hparams
 
 DIFF_DENOISERS = {
-    'wavenet': WaveNet,'unet':Unet
+    'wavenet': WaveNet, 'unet': Unet, 'unet2': UnetX, 'unet3': UnetX2, 'unet3a': UnetXa, 'unetav2': UnetXav2,
+    'unetav2self': UnetXav2sf, 'Dunetav2self': DUnetXav2, 'UnetXa_V': UnetXa_V
 }
 
 
