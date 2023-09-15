@@ -2,12 +2,15 @@ import csv
 import json
 import os
 import pathlib
+from collections import defaultdict
+from random import choice, random
 
 import librosa
 import numpy as np
 import torch
 import torch.nn.functional as F
 from scipy import interpolate
+from tqdm import tqdm
 
 from basics.base_binarizer import BaseBinarizer
 from basics.base_pe import BasePE
@@ -58,6 +61,15 @@ class VarianceBinarizer(BaseBinarizer):
         self.lr = LengthRegulator().to(self.device)
         self.prefer_ds = self.binarization_args['prefer_ds']
         self.cached_ds = {}
+        self.data_duplication = hparams['data_duplication']
+        
+        self.replacer = defaultdict(list)
+        if 'ph_replacer' in hparams and hparams['ph_replacer']:
+            with open(hparams['ph_replacer'], 'r') as f:
+                for line in f:
+                    line = line.strip().split()
+                    for ph in line:
+                        self.replacer[line[0]].append(ph)
 
     def load_attr_from_ds(self, ds_id, name, attr, idx=0):
         item_name = f'{ds_id}:{name}'
@@ -83,8 +95,9 @@ class VarianceBinarizer(BaseBinarizer):
             ds = ds[idx]
         return ds.get(attr)
 
-    def load_meta_data(self, raw_data_dir: pathlib.Path, ds_id, spk_id):
+    def load_meta_data(self, raw_data_dir: pathlib.Path, ph_map, ds_id, spk_id):
         meta_data_dict = {}
+        dup = self.data_duplication[self.speakers[ds_id]]
 
         for utterance_label in csv.DictReader(
                 open(raw_data_dir / 'transcriptions.csv', 'r', encoding='utf8')
@@ -104,31 +117,40 @@ class VarianceBinarizer(BaseBinarizer):
                     raise ValueError(f'Missing required attribute {attr} of item \'{item_name}\'.')
                 return value
 
-            temp_dict = {
-                'ds_idx': item_idx,
-                'spk_id': spk_id,
-                'wav_fn': str(raw_data_dir / 'wavs' / f'{item_name}.wav'),
-                'ph_seq': require('ph_seq').split(),
-                'ph_dur': [float(x) for x in require('ph_dur').split()]
-            }
+            dup_cnt = dup
+            while random() < dup_cnt:
+                dup_cnt -= 1
+                rand_seq = []
+                for ph in [ph_map.get(x, x) for x in require('ph_seq').split()]:
+                    if ph in self.replacer:
+                        rand_seq.append(choice(self.replacer[ph]))
+                    else:
+                        rand_seq.append(ph)
+                temp_dict = {
+                    'ds_idx': item_idx,
+                    'spk_id': spk_id,
+                    'wav_fn': str(raw_data_dir / 'wavs' / f'{item_name}.wav'),
+                    'ph_seq': rand_seq,
+                    'ph_dur': [float(x) for x in require('ph_dur').split()]
+                }
 
-            assert len(temp_dict['ph_seq']) == len(temp_dict['ph_dur']), \
-                f'Lengths of ph_seq and ph_dur mismatch in \'{item_name}\'.'
+                assert len(temp_dict['ph_seq']) == len(temp_dict['ph_dur']), \
+                    f'Lengths of ph_seq and ph_dur mismatch in \'{item_name}\'.'
 
-            if hparams['predict_dur']:
-                temp_dict['ph_num'] = [int(x) for x in require('ph_num').split()]
-                assert len(temp_dict['ph_seq']) == sum(temp_dict['ph_num']), \
-                    f'Sum of ph_num does not equal length of ph_seq in \'{item_name}\'.'
+                if hparams['predict_dur']:
+                    temp_dict['ph_num'] = [int(x) for x in require('ph_num').split()]
+                    assert len(temp_dict['ph_seq']) == sum(temp_dict['ph_num']), \
+                        f'Sum of ph_num does not equal length of ph_seq in \'{item_name}\'.'
 
-            if hparams['predict_pitch']:
-                temp_dict['note_seq'] = require('note_seq').split()
-                temp_dict['note_dur'] = [float(x) for x in require('note_dur').split()]
-                assert len(temp_dict['note_seq']) == len(temp_dict['note_dur']), \
-                    f'Lengths of note_seq and note_dur mismatch in \'{item_name}\'.'
-                assert any([note != 'rest' for note in temp_dict['note_seq']]), \
-                    f'All notes are rest in \'{item_name}\'.'
+                if hparams['predict_pitch']:
+                    temp_dict['note_seq'] = require('note_seq').split()
+                    temp_dict['note_dur'] = [float(x) for x in require('note_dur').split()]
+                    assert len(temp_dict['note_seq']) == len(temp_dict['note_dur']), \
+                        f'Lengths of note_seq and note_dur mismatch in \'{item_name}\'.'
+                    assert any([note != 'rest' for note in temp_dict['note_seq']]), \
+                        f'All notes are rest in \'{item_name}\'.'
 
-            meta_data_dict[f'{ds_id}:{item_name}'] = temp_dict
+                meta_data_dict[f'{ds_id}:{item_name}_{dup_cnt}'] = temp_dict
 
         self.items.update(meta_data_dict)
 

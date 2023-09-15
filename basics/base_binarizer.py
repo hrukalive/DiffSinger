@@ -63,6 +63,9 @@ class BaseBinarizer:
         self.speakers = hparams['speakers']
         self.build_spk_map()
 
+        self.ph_maps = hparams.get('ph_maps', ['' for _ in data_dir])
+        self.build_ph_map()
+
         self.items = {}
         self.item_names: list = None
         self._train_item_names: list = None
@@ -92,7 +95,25 @@ class BaseBinarizer:
 
         print("| spk_map: ", self.spk_map)
 
-    def load_meta_data(self, raw_data_dir: pathlib.Path, ds_id, spk_id):
+    def build_ph_map(self):
+        assert isinstance(self.ph_maps, list), 'Phoneme maps must be a list'
+        assert len(self.ph_maps) == len(self.raw_data_dirs), \
+            'Number of raw data dirs must equal number of phoneme maps!'
+        contents = []
+        for path in self.ph_maps:
+            if path.strip():
+                with open(path, 'r') as f:
+                    m = {}
+                    for line in f:
+                        original_phs, ret_ph = line.strip().split()
+                        for original_ph in original_phs.split(','):
+                            m[original_ph.strip()] = ret_ph.strip()
+                    contents.append(m)
+            else:
+                contents.append({})
+        self.ph_maps = contents
+
+    def load_meta_data(self, raw_data_dir: pathlib.Path, ph_map, ds_id, spk_id):
         raise NotImplementedError()
 
     def split_train_valid_set(self):
@@ -167,8 +188,8 @@ class BaseBinarizer:
 
     def process(self):
         # load each dataset
-        for ds_id, spk_id, data_dir in zip(range(len(self.raw_data_dirs)), self.spk_ids, self.raw_data_dirs):
-            self.load_meta_data(pathlib.Path(data_dir), ds_id=ds_id, spk_id=spk_id)
+        for ds_id, spk_id, data_dir, ph_map in zip(range(len(self.raw_data_dirs)), self.spk_ids, self.raw_data_dirs, self.ph_maps):
+            self.load_meta_data(data_dir, ph_map, ds_id=ds_id, spk_id=spk_id)
         self.item_names = sorted(list(self.items.keys()))
         self._train_item_names, self._valid_item_names = self.split_train_valid_set()
 

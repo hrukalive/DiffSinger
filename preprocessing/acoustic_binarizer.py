@@ -53,7 +53,7 @@ class AcousticBinarizer(BaseBinarizer):
         self.need_energy = hparams.get('use_energy_embed', False)
         self.need_breathiness = hparams.get('use_breathiness_embed', False)
 
-    def load_meta_data(self, raw_data_dir: pathlib.Path, ds_id, spk_id):
+    def load_meta_data(self, raw_data_dir: pathlib.Path, ph_map, ds_id, spk_id):
         meta_data_dict = {}
         if (raw_data_dir / 'transcriptions.csv').exists():
             for utterance_label in csv.DictReader(
@@ -62,7 +62,7 @@ class AcousticBinarizer(BaseBinarizer):
                 item_name = utterance_label['name']
                 temp_dict = {
                     'wav_fn': str(raw_data_dir / 'wavs' / f'{item_name}.wav'),
-                    'ph_seq': utterance_label['ph_seq'].split(),
+                    'ph_seq': [ph_map.get(x, x) for x in utterance_label['ph_seq'].split()],
                     'ph_dur': [float(x) for x in utterance_label['ph_dur'].split()],
                     'spk_id': spk_id
                 }

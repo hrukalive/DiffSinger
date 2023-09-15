@@ -89,3 +89,41 @@ class SpectrogramStretchAugmentation(BaseAugmentation):
             aug_item['f0'] *= 2 ** (key_shift / 12)
 
         return aug_item
+
+
+    def process_item_wav(self, item: dict, vocoder, wav, wav_torch, key_shift=0., speed=1., replace_spk_id=None, device='cpu') -> dict:
+        aug_item = deepcopy(item)
+        mel = vocoder.wav2spec_direct(wav_torch, keyshift=key_shift, speed=speed, device=device)
+
+        aug_item['mel'] = mel
+
+        if speed != 1. or hparams.get('use_speed_embed', False):
+            aug_item['length'] = mel.shape[0]
+            aug_item['speed'] = int(np.round(hparams['hop_size'] * speed)) / hparams['hop_size']  # real speed
+            aug_item['seconds'] /= aug_item['speed']
+            aug_item['ph_dur'] /= aug_item['speed']
+            aug_item['mel2ph'] = get_mel2ph_torch(
+                self.lr, aug_item['ph_dur'], aug_item['length'], self.timestep, device=device
+            )
+
+            f0, _ = self.pe.get_pitch(
+                wav, aug_item['length'], hparams, speed=speed, interp_uv=hparams['interp_uv']
+            )
+            aug_item['f0'] = torch.from_numpy(f0.astype(np.float32))
+            for v_name in VARIANCE_CHECKLIST:
+                if v_name in item:
+                    aug_item[v_name] = torch.from_numpy(resample_align_curve(
+                        aug_item[v_name].cpu().numpy(),
+                        original_timestep=self.timestep,
+                        target_timestep=self.timestep * aug_item['speed'],
+                        align_length=aug_item['length']
+                    )).to(device)
+
+        if key_shift != 0. or hparams.get('use_key_shift_embed', False):
+            if replace_spk_id is None:
+                aug_item['key_shift'] = key_shift
+            else:
+                aug_item['spk_id'] = replace_spk_id
+            aug_item['f0'] *= 2 ** (key_shift / 12)
+
+        return aug_item

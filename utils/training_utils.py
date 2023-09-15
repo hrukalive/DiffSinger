@@ -8,7 +8,7 @@ import lightning.pytorch as pl
 import numpy as np
 import torch
 from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar
-from lightning.pytorch.strategies import DDPStrategy
+from lightning.pytorch.strategies import Strategy
 from lightning.pytorch.utilities.rank_zero import rank_zero_info
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data.distributed import Sampler
@@ -106,8 +106,7 @@ class DsBatchSampler(Sampler):
             if self.sort_by_similar_size:
                 grid = int(hparams.get('sampler_frame_count_grid', 200))
                 assert grid > 0
-                sizes = (np.round(np.array(self.dataset._sizes)[indices] / grid) * grid).clip(grid, None).astype(
-                    np.int64)
+                sizes = (np.round(np.array(self.dataset.sizes)[indices] / grid) * grid).clip(grid, None).astype(np.int64)
                 indices = indices[np.argsort(sizes, kind='mergesort')]
 
             indices = indices.tolist()
@@ -169,33 +168,26 @@ class DsBatchSampler(Sampler):
 
     def set_epoch(self, epoch):
         self.epoch = epoch
+        if hasattr(self.dataset, 'set_epoch'):
+            self.dataset.set_epoch(epoch)
 
 
 class DsEvalBatchSampler(Sampler):
-    def __init__(self, dataset, max_batch_frames, max_batch_size, rank=None, batch_by_size=True) -> None:
+    def __init__(self, dataset, max_batch_size, num_replicas=None, rank=None) -> None:
         self.dataset = dataset
-        self.max_batch_frames = max_batch_frames
         self.max_batch_size = max_batch_size
-        self.rank = rank
-        self.batch_by_size = batch_by_size
-        self.batches = None
-        self.batch_size = max_batch_size
-        self.drop_last = False
 
-        if self.rank == 0:
-            indices = list(range(len(self.dataset)))
-            if self.batch_by_size:
-                self.batches = utils.batch_by_size(
-                    indices, self.dataset.num_frames,
-                    max_batch_frames=self.max_batch_frames, max_batch_size=self.max_batch_size
-                )
-            else:
-                self.batches = [
-                    indices[i:i + self.max_batch_size]
-                    for i in range(0, len(indices), self.max_batch_size)
-                ]
-        else:
-            self.batches = [[0]]
+        ceiled_count = math.ceil(len(dataset) / num_replicas) * num_replicas
+        indices = np.arange(0, ceiled_count)
+        indices[indices >= len(dataset)] = 0
+
+        indices = indices.reshape(-1, num_replicas).transpose()[rank].tolist()
+        self.batches = [
+            indices[i:i + max_batch_size]
+            for i in range(0, len(indices), max_batch_size)
+        ]
+
+        self.max_mel_len = max(self.dataset.sizes)
 
     def __iter__(self):
         return iter(self.batches)
@@ -331,73 +323,16 @@ class DsTQDMProgressBar(TQDMProgressBar):
         return items
 
 
-def get_strategy(accelerator, devices, num_nodes, strategy, backend):
-    if accelerator != 'auto' and accelerator != 'gpu':
-        return strategy
+def get_strategy(strategy):
+    if strategy['name'] == 'auto':
+        return 'auto'
+    
+    from lightning.pytorch.strategies import StrategyRegistry
+    if strategy['name'] not in StrategyRegistry:
+        available_names = ", ".join(sorted(StrategyRegistry.keys())) or "none"
+        raise ValueError(f"Invalid strategy name {strategy['name']}. Available names: {available_names}")
 
-    from lightning.fabric.utilities.imports import _IS_INTERACTIVE
-    from lightning.pytorch.accelerators import AcceleratorRegistry
-    from lightning.pytorch.accelerators.cuda import CUDAAccelerator
-    from lightning.pytorch.accelerators.hpu import HPUAccelerator
-    from lightning.pytorch.accelerators.ipu import IPUAccelerator
-    from lightning.pytorch.accelerators.mps import MPSAccelerator
-    from lightning.pytorch.accelerators.tpu import TPUAccelerator
-    from lightning.pytorch.utilities.exceptions import MisconfigurationException
-
-    def _choose_auto_accelerator():
-        if TPUAccelerator.is_available():
-            return "tpu"
-        if IPUAccelerator.is_available():
-            return "ipu"
-        if HPUAccelerator.is_available():
-            return "hpu"
-        if MPSAccelerator.is_available():
-            return "mps"
-        if CUDAAccelerator.is_available():
-            return "cuda"
-        return "cpu"
-
-    def _choose_gpu_accelerator_backend():
-        if MPSAccelerator.is_available():
-            return "mps"
-        if CUDAAccelerator.is_available():
-            return "cuda"
-        raise MisconfigurationException("No supported gpu backend found!")
-
-    if accelerator == "auto":
-        _accelerator_flag = _choose_auto_accelerator()
-    elif accelerator == "gpu":
-        _accelerator_flag = _choose_gpu_accelerator_backend()
-    else:
-        return strategy
-
-    if _accelerator_flag != "mps" and _accelerator_flag != "cuda":
-        return strategy
-
-    _num_nodes_flag = int(num_nodes) if num_nodes is not None else 1
-    _devices_flag = devices
-
-    accelerator = AcceleratorRegistry.get(_accelerator_flag)
-    accelerator_cls = accelerator.__class__
-
-    if _devices_flag == "auto":
-        _devices_flag = accelerator.auto_device_count()
-
-    _devices_flag = accelerator_cls.parse_devices(_devices_flag)
-    _parallel_devices = accelerator_cls.get_parallel_devices(_devices_flag)
-
-    def get_ddp_strategy(_backend):
-        if _backend == 'gloo':
-            return DDPStrategy(process_group_backend='gloo', find_unused_parameters=False)
-        elif _backend == 'nccl' or _backend == 'nccl_no_p2p':
-            return DDPStrategy(process_group_backend='nccl', find_unused_parameters=False)
-        else:
-            raise ValueError(f'backend {_backend} is not valid.')
-
-    if _num_nodes_flag > 1:
-        return get_ddp_strategy(backend)
-    if len(_parallel_devices) <= 1:
-        return strategy
-    if len(_parallel_devices) > 1 and _IS_INTERACTIVE:
-        return strategy
-    return get_ddp_strategy(backend)
+    data = StrategyRegistry[strategy['name']]
+    params = data['init_params']
+    params.update({k: v for k, v in strategy.items() if k != 'name'})
+    return data['strategy'](**utils.filter_kwargs(params, data['strategy']))

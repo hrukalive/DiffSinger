@@ -26,11 +26,11 @@ class VarianceDataset(BaseDataset):
         need_breathiness = hparams['predict_breathiness']
         self.predict_variances = need_energy or need_breathiness
 
-    def collater(self, samples):
+    def collater(self, samples, max_len):
         batch = super().collater(samples)
 
-        tokens = utils.collate_nd([s['tokens'] for s in samples], 0)
-        ph_dur = utils.collate_nd([s['ph_dur'] for s in samples], 0)
+        tokens = utils.collate_nd([s['tokens'] for s in samples], 0, max_len)
+        ph_dur = utils.collate_nd([s['ph_dur'] for s in samples], 0, max_len)
         batch.update({
             'tokens': tokens,
             'ph_dur': ph_dur
@@ -39,18 +39,18 @@ class VarianceDataset(BaseDataset):
         if hparams['use_spk_id']:
             batch['spk_ids'] = torch.LongTensor([s['spk_id'] for s in samples])
         if hparams['predict_dur']:
-            batch['ph2word'] = utils.collate_nd([s['ph2word'] for s in samples], 0)
-            batch['midi'] = utils.collate_nd([s['midi'] for s in samples], 0)
+            batch['ph2word'] = utils.collate_nd([s['ph2word'] for s in samples], 0, max_len)
+            batch['midi'] = utils.collate_nd([s['midi'] for s in samples], 0, max_len)
         if hparams['predict_pitch']:
-            batch['base_pitch'] = utils.collate_nd([s['base_pitch'] for s in samples], 0)
+            batch['base_pitch'] = utils.collate_nd([s['base_pitch'] for s in samples], 0, max_len)
         if hparams['predict_pitch'] or self.predict_variances:
-            batch['mel2ph'] = utils.collate_nd([s['mel2ph'] for s in samples], 0)
-            batch['pitch'] = utils.collate_nd([s['pitch'] for s in samples], 0)
+            batch['mel2ph'] = utils.collate_nd([s['mel2ph'] for s in samples], 0, max_len)
+            batch['pitch'] = utils.collate_nd([s['pitch'] for s in samples], 0, max_len)
             batch['uv'] = utils.collate_nd([s['uv'] for s in samples], True)
         if hparams['predict_energy']:
-            batch['energy'] = utils.collate_nd([s['energy'] for s in samples], 0)
+            batch['energy'] = utils.collate_nd([s['energy'] for s in samples], 0, max_len)
         if hparams['predict_breathiness']:
-            batch['breathiness'] = utils.collate_nd([s['breathiness'] for s in samples], 0)
+            batch['breathiness'] = utils.collate_nd([s['breathiness'] for s in samples], 0, max_len)
 
         return batch
 
@@ -67,7 +67,8 @@ def random_retake_masks(b, t, device):
 class VarianceTask(BaseTask):
     def __init__(self):
         super().__init__()
-        self.dataset_cls = VarianceDataset
+        self.dataset_train_cls = VarianceDataset
+        self.dataset_valid_cls = VarianceDataset
 
         self.use_spk_id = hparams['use_spk_id']
 
