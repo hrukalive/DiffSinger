@@ -225,28 +225,42 @@ class AcousticTask(BaseTask):
                     k: v.transpose(0, 1).flatten(0, 1)
                     for k, v in gathered.items()
                 }
-                for idx, mel_img in zip(
+                for idx, aux_mel_img, pred_mel_img in zip(
                     gathered['idxs'],
-                    gathered['mel_imgs']
+                    gathered['aux_mel_imgs'],
+                    gathered['pred_mel_imgs']
                 ):
                     if idx < 0:
                         continue
                     self.logger.experiment.add_image(
                         f'diffmel_{idx}',
-                        mel_img,
+                        pred_mel_img,
+                        self.global_step
+                    )
+                    self.logger.experiment.add_image(
+                        f'auxmel_{idx}',
+                        aux_mel_img,
                         self.global_step
                     )
                 if self.use_vocoder:
-                    for idx, wav_len, wav in zip(
+                    for idx, aux_wav_len, aux_wav, pred_wav_len, pred_wav in zip(
                         gathered['idxs'],
-                        gathered['wav_lens'],
-                        gathered['wavs']
+                        gathered['aux_wav_lens'],
+                        gathered['aux_wavs'],
+                        gathered['pred_wav_lens'],
+                        gathered['pred_wavs']
                     ):
                         if idx < 0:
                             continue
                         self.logger.experiment.add_audio(
                             f'pred_{idx}',
-                            wav[:wav_len],
+                            pred_wav[:pred_wav_len],
+                            sample_rate=hparams['audio_sample_rate'],
+                            global_step=self.global_step
+                        )
+                        self.logger.experiment.add_audio(
+                            f'aux_{idx}',
+                            aux_wav[:aux_wav_len],
                             sample_rate=hparams['audio_sample_rate'],
                             global_step=self.global_step
                         )
