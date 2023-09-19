@@ -151,8 +151,6 @@ class AcousticTask(BaseTask):
             'idxs': -torch.ones(valid_per_replica, dtype=torch.long),
             'aux_mel_imgs': torch.zeros((valid_per_replica, *img.shape), dtype=torch.uint8),
             'pred_mel_imgs': torch.zeros((valid_per_replica, *img.shape), dtype=torch.uint8),
-            # 'mels': torch.zeros(valid_per_replica, max_mel_len, hparams['audio_num_mel_bins'] * 3),
-            # 'mel_lens': torch.zeros(valid_per_replica, dtype=torch.long),
             
         }
         if self.use_vocoder:

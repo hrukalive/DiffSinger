@@ -121,39 +121,39 @@ class BaseBinarizer:
         Split the dataset into training set and validation set.
         :return: train_item_names, valid_item_names
         """
-        prefixes = set([str(pr) for pr in hparams['test_prefixes']])
-        valid_item_names = set()
+        prefixes = {str(pr): None for pr in hparams['test_prefixes']}
+        valid_item_names = []
         # Add prefixes that specified speaker index and matches exactly item name to test set
         for prefix in deepcopy(prefixes):
             if prefix in self.item_names:
-                valid_item_names.add(prefix)
-                prefixes.remove(prefix)
+                valid_item_names.append(prefix)
+                prefixes.pop(prefix)
         # Add prefixes that exactly matches item name without speaker id to test set
         for prefix in deepcopy(prefixes):
             matched = False
             for name in self.item_names:
                 if name.split(':')[-1] == prefix:
-                    valid_item_names.add(name)
+                    valid_item_names.append(name)
                     matched = True
             if matched:
-                prefixes.remove(prefix)
+                prefixes.pop(prefix)
         # Add names with one of the remaining prefixes to test set
         for prefix in deepcopy(prefixes):
             matched = False
             for name in self.item_names:
                 if name.startswith(prefix):
-                    valid_item_names.add(name)
+                    valid_item_names.append(name)
                     matched = True
             if matched:
-                prefixes.remove(prefix)
+                prefixes.pop(prefix)
         for prefix in deepcopy(prefixes):
             matched = False
             for name in self.item_names:
                 if name.split(':')[-1].startswith(prefix):
-                    valid_item_names.add(name)
+                    valid_item_names.append(name)
                     matched = True
             if matched:
-                prefixes.remove(prefix)
+                prefixes.pop(prefix)
 
         if len(prefixes) != 0:
             warnings.warn(
@@ -162,7 +162,7 @@ class BaseBinarizer:
             )
             warnings.filterwarnings('default')
 
-        valid_item_names = sorted(list(valid_item_names))
+        # valid_item_names = sorted(list(valid_item_names))
         assert len(valid_item_names) > 0, 'Validation set is empty!'
         train_item_names = [x for x in self.item_names if x not in set(valid_item_names)]
         assert len(train_item_names) > 0, 'Training set is empty!'
