@@ -130,14 +130,12 @@ class AcousticTask(BaseTask):
         valid_per_replica = -(-num_valid_plots // self.num_replicas)
         max_mel_len = max(self.valid_dataset.sizes[:num_valid_plots])
         max_wav_len = max_mel_len * hparams['hop_size'] + hparams['win_size']
-        fig = spec_to_figure(torch.zeros((2, 2)))
-        img = figure_to_image(fig)
         self.validation_results = {
             'idxs': -torch.ones(valid_per_replica, dtype=torch.long),
-            'mel_imgs': torch.zeros((valid_per_replica, *img.shape), dtype=torch.uint8),
-            # 'mels': torch.zeros(valid_per_replica, max_mel_len, hparams['audio_num_mel_bins'] * 3),
-            # 'mel_lens': torch.zeros(valid_per_replica, dtype=torch.long),
-            
+            'mel_imgs': torch.zeros(
+                (valid_per_replica, *figure_to_image(spec_to_figure(torch.zeros((2, 2)))).shape),
+                dtype=torch.uint8
+            ),
         }
         if self.use_vocoder:
             self.validation_results['wavs'] = torch.zeros(valid_per_replica, max_wav_len)
@@ -176,12 +174,10 @@ class AcousticTask(BaseTask):
                 val_idx = idx + batch_idx * self.valid_sampler.max_batch_size
                 if data_idx < num_valid_plots:
                     mel_len = sample['mel_lengths'][idx]
-                    # gt_mel = sample['mel'][idx, :mel_len].unsqueeze(0)
-                    # spec_cat = torch.cat([(pred_mel - gt_mel).abs() + hparams['mel_vmin'], gt_mel, pred_mel], -1)
                     self.validation_results['idxs'][val_idx] = data_idx
-                    self.validation_results['mel_imgs'][val_idx] = torch.tensor(figure_to_image(spec_to_figure(spec_cat[idx, :mel_len, :], vmin, vmax)))
-                    # self.validation_results['mels'][val_idx, :mel_len] = spec_cat[0]
-                    # self.validation_results['mel_lens'][val_idx] = mel_len
+                    self.validation_results['mel_imgs'][val_idx] = torch.tensor(
+                        figure_to_image(spec_to_figure(spec_cat[idx, :mel_len, :], vmin, vmax))
+                    )
                     if self.use_vocoder:
                         f0_len = sample['f0_lengths'][idx]
                         f0 = sample['f0'][idx, :f0_len].unsqueeze(0)

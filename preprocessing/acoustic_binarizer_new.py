@@ -103,6 +103,7 @@ class AcousticBinarizerNew(BaseBinarizer):
 
         # Process valid set and train set
         try:
+            print([(x, y['spk_id']) for x, y in self.meta_data_iterator('valid')])
             self.process_dataset(
                 'valid',
                 num_workers=int(self.binarization_args['num_workers']),
@@ -116,10 +117,10 @@ class AcousticBinarizerNew(BaseBinarizer):
 
     def process_dataset(self, prefix, num_workers=0, apply_augmentation=False):
         args = []
-        builder = IndexedDatasetBuilder(self.binary_data_dir, prefix=prefix, allowed_attr=self.data_attrs)
+        builder = IndexedDatasetBuilder(self.binary_data_dir, prefix=prefix, allowed_attr=self.data_attrs, auto_increment=(prefix == 'train'))
 
-        for item_name, meta_data in self.meta_data_iterator(prefix):
-            args.append([prefix, item_name, meta_data, self.binarization_args])
+        for i, (item_name, meta_data) in enumerate(self.meta_data_iterator(prefix)):
+            args.append([prefix, i, item_name, meta_data, self.binarization_args])
 
         reverse_spk_map = {v: k for k, v in self.spk_map.items()}
         total_sec = {k: 0.0 for k in self.spk_map}
@@ -133,7 +134,11 @@ class AcousticBinarizerNew(BaseBinarizer):
             nonlocal total_sec, extra_info
             if item is None:
                 return
-            item_no = builder.add_item(item)
+            if prefix == 'valid':
+                item_no = builder.add_item(item, item['item_no'])
+                print(item['item_no'], item['name'], item['spk_id'])
+            else:
+                item_no = builder.add_item(item)
             extra_info['lengths'][item_no] = item['length']
             extra_info['seconds'][item_no] = item['seconds']
             extra_info['spk_ids'][item_no] = item['spk_id']
@@ -182,7 +187,7 @@ class AcousticBinarizerNew(BaseBinarizer):
                 print(f'|     {k}: {v:.3f}s')
 
     @torch.no_grad()
-    def process_item(self, prefix, item_name, meta_data, binarization_args):
+    def process_item(self, prefix, idx, item_name, meta_data, binarization_args):
         global pitch_extractor, energy_smooth, breathiness_smooth
         if hparams['vocoder'] in VOCODERS:
             wav, mel = VOCODERS[hparams['vocoder']].wav2spec(meta_data['wav_fn'])
@@ -203,6 +208,7 @@ class AcousticBinarizerNew(BaseBinarizer):
             }
         elif prefix == 'valid':
             processed_input = {
+                'item_no': idx,
                 'name': item_name,
                 'wav_fn': meta_data['wav_fn'],
                 'spk_id': meta_data['spk_id'],
