@@ -20,13 +20,14 @@ from modules.fastspeech.variance_encoder import FastSpeech2Variance
 from utils.hparams import hparams
 
 
-class DiffSingerAcoustic(ParameterAdaptorModule, CategorizedModule):
+class DiffSingerAcoustic(CategorizedModule, ParameterAdaptorModule):
     @property
     def category(self):
         return 'acoustic'
 
     def __init__(self, vocab_size, out_dims):
-        super().__init__()
+        CategorizedModule.__init__(self)
+        ParameterAdaptorModule.__init__(self)
         self.fs2 = FastSpeech2Acoustic(
             vocab_size=vocab_size
         )
@@ -64,13 +65,14 @@ class DiffSingerAcoustic(ParameterAdaptorModule, CategorizedModule):
             return x_recon, noise
 
 
-class DiffSingerVariance(ParameterAdaptorModule, CategorizedModule):
+class DiffSingerVariance(CategorizedModule, ParameterAdaptorModule):
     @property
     def category(self):
         return 'variance'
 
     def __init__(self, vocab_size):
-        super().__init__()
+        CategorizedModule.__init__(self)
+        ParameterAdaptorModule.__init__(self)
         self.predict_dur = hparams['predict_dur']
         self.predict_pitch = hparams['predict_pitch']
 
