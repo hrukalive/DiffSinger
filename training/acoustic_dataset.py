@@ -70,7 +70,7 @@ class AcousticTrainingDataset(BaseDataset):
         max_spk_id = max(self.spk_ids)
         self.replace_spk_ids = {}
         for spk_id in sorted(self.aug_settings.keys()):
-            if self.aug_settings[spk_id]['fixed_pitch_shifting']:
+            if self.aug_settings[spk_id]['fixed_pitch_shifting']['enabled']:
                 for target in self.aug_settings[spk_id]['fixed_pitch_shifting']['targets']:
                     max_spk_id += 1
                     self.replace_spk_ids[(spk_id, target)] = max_spk_id
