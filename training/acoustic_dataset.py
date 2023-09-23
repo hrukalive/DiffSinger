@@ -1,7 +1,6 @@
 import json
 import math
 import os
-from collections import defaultdict
 from copy import deepcopy
 
 import numpy as np
@@ -19,8 +18,6 @@ from modules.pe import initialize_pe
 from modules.vocoders.registry import VOCODERS
 from utils.binarizer_utils import (
     SinusoidalSmoothingConv1d,
-    get_breathiness_pyworld,
-    get_energy_librosa,
     get_mel2ph_torch,
 )
 from utils.hparams import hparams
@@ -32,6 +29,7 @@ class AcousticTrainingDataset(BaseDataset):
         self.prefix = prefix
         self.preload = preload
         self.device = 'cpu'
+        self.seed = hparams['seed']
         self.data_dir = hparams['binary_data_dir']
         self.raw_data_dirs = hparams['raw_data_dir']
 
@@ -116,13 +114,14 @@ class AcousticTrainingDataset(BaseDataset):
         self.need_key_shift = hparams.get('use_key_shift_embed', False)
         self.need_speed = hparams.get('use_speed_embed', False)
         self.need_spk_id = hparams['use_spk_id']
-        
+        self.aug_ins = SpectrogramStretchAugmentation(None, None, pe=self.pitch_extractor)
 
         if hparams['vocoder'] in VOCODERS:
             self.vocoder = VOCODERS[hparams['vocoder']]()
         else:
             self.vocoder = VOCODERS[hparams['vocoder'].split('.')[-1]]()
         
+        self.prev_epoch = -1
         self.set_epoch(0)
 
     def _stft_len(self, l, keyshift=0.0, speed=1.0):
@@ -152,6 +151,8 @@ class AcousticTrainingDataset(BaseDataset):
         self.breathiness_smooth.to(device)
 
     def set_epoch(self, epoch):
+        if self.prev_epoch == epoch + self.seed:
+            return
         self.epoch = epoch
         self.items = []
         self.sizes = []
@@ -159,7 +160,7 @@ class AcousticTrainingDataset(BaseDataset):
         min_sil = int(0.1 * self.sampling_rate)
         max_sil = int(0.5 * self.sampling_rate)
 
-        rng = np.random.default_rng(hparams['seed'] + self.epoch)
+        rng = np.random.default_rng(self.seed + self.epoch)
         for spk_id, data_idxs in self.spk_data.items():
             int_dup = int(self.dup_factors[spk_id])
             frac_dup = self.dup_factors[spk_id] - int_dup
@@ -186,18 +187,17 @@ class AcousticTrainingDataset(BaseDataset):
                 ))
             
             aug_setting = self.aug_settings[spk_id]
-            aug_map = defaultdict(list)
             aug_list = []
             total_scale = 0
             if aug_setting['random_pitch_shifting']['enabled']:
                 aug_args = aug_setting['random_pitch_shifting']
                 key_shift_min, key_shift_max = aug_args['range']
-                assert hparams.get('use_key_shift_embed', False), \
+                assert self.need_key_shift, \
                     'Random pitch shifting augmentation requires use_key_shift_embed == True.'
                 assert key_shift_min < 0 < key_shift_max, \
                     'Random pitch shifting augmentation must have a range where min < 0 < max.'
 
-                aug_ins = SpectrogramStretchAugmentation(None, aug_args, pe=self.pitch_extractor)
+                # aug_ins = SpectrogramStretchAugmentation(None, aug_args, pe=self.pitch_extractor)
                 scale = aug_args['scale']
                 aug_item_names = rng.choice(data_idxs, size=int(scale * len(data_idxs)))
                 rands = rng.uniform(-1, 1, size=len(aug_item_names)).tolist()
@@ -210,10 +210,9 @@ class AcousticTrainingDataset(BaseDataset):
                         key_shift = key_shift_max * rand
                     aug_task = {
                         'data_idx': aug_item_name,
-                        'func': aug_ins,
+                        # 'func': aug_ins,
                         'kwargs': {'key_shift': key_shift}
                     }
-                    aug_map[aug_item_name].append(aug_task)
                     aug_list.append(aug_task)
 
                 total_scale += scale
@@ -226,20 +225,19 @@ class AcousticTrainingDataset(BaseDataset):
                     'Fixed pitch shifting augmentation is not compatible with random pitch shifting.'
                 assert len(targets) == len(set(targets)), \
                     'Fixed pitch shifting augmentation requires having no duplicate targets.'
-                assert hparams['use_spk_id'], 'Fixed pitch shifting augmentation requires use_spk_id == True.'
+                assert self.need_spk_id, 'Fixed pitch shifting augmentation requires use_spk_id == True.'
                 assert scale < 1, 'Fixed pitch shifting augmentation requires scale < 1.'
 
-                aug_ins = SpectrogramStretchAugmentation(None, aug_args, pe=self.pitch_extractor)
+                # aug_ins = SpectrogramStretchAugmentation(None, aug_args, pe=self.pitch_extractor)
                 for target in targets:
                     aug_item_names = rng.choice(data_idxs, size=int(scale * len(data_idxs))).tolist()
                     for aug_item_name in aug_item_names:
                         replace_spk_id = self.replace_spk_ids[(spk_id, target)]
                         aug_task = {
                             'data_idx': aug_item_name,
-                            'func': aug_ins,
+                            # 'func': aug_ins,
                             'kwargs': {'key_shift': target, 'replace_spk_id': replace_spk_id}
                         }
-                        aug_map[aug_item_name].append(aug_task)
                         aug_list.append(aug_task)
 
                 total_scale += scale * len(targets)
@@ -248,13 +246,13 @@ class AcousticTrainingDataset(BaseDataset):
                 aug_args = aug_setting['random_time_stretching']
                 speed_min, speed_max = aug_args['range']
                 domain = aug_args['domain']
-                assert hparams.get('use_speed_embed', False), \
+                assert self.need_speed, \
                     'Random time stretching augmentation requires use_speed_embed == True.'
                 assert 0 < speed_min < 1 < speed_max, \
                     'Random time stretching augmentation must have a range where 0 < min < 1 < max.'
                 assert domain in ['log', 'linear'], 'domain must be \'log\' or \'linear\'.'
 
-                aug_ins = SpectrogramStretchAugmentation(None, aug_args, pe=self.pitch_extractor)
+                # aug_ins = SpectrogramStretchAugmentation(None, aug_args, pe=self.pitch_extractor)
                 scale = aug_args['scale']
                 k_from_raw = int(scale / (1 + total_scale) * len(data_idxs))
                 k_from_aug = int(total_scale * scale / (1 + total_scale) * len(data_idxs))
@@ -275,20 +273,18 @@ class AcousticTrainingDataset(BaseDataset):
                     if aug_type == 0:
                         aug_task = {
                             'data_idx': aug_item,
-                            'func': aug_ins,
+                            # 'func': aug_ins,
                             'kwargs': {'speed': speed}
                         }
-                        aug_map[aug_item].append(aug_task)
                         aug_list.append(aug_task)
                     elif aug_type == 1:
                         real_aug = aug_list[aug_item]
                         aug_task = {
                             'data_idx': real_aug['data_idx'],
-                            'func': real_aug['func'],
+                            # 'func': real_aug['func'],
                             'kwargs': deepcopy(real_aug['kwargs'])
                         }
                         aug_task['kwargs']['speed'] = speed
-                        aug_map[real_aug['data_idx']].append(aug_task)
                         aug_list.append(aug_task)
                     elif aug_type == 2:
                         real_aug = aug_list[aug_item]
@@ -309,7 +305,7 @@ class AcousticTrainingDataset(BaseDataset):
                     'spk_id': spk_id,
                     'sp': (aug_sps[j], aug_sps[j + len(aug_list)]),
                     'aug': {
-                        'func': aug['func'],
+                        # 'func': aug['func'],
                         'kwargs': aug['kwargs'],
                     }
                 }
@@ -318,6 +314,7 @@ class AcousticTrainingDataset(BaseDataset):
                     self.extra_info['lengths'][item['data_idx']] + item['sp'][0] + item['sp'][1],
                     key_shift, speed
                 ))
+        self.prev_epoch = epoch + self.seed
 
     @torch.no_grad()
     def __getitem__(self, index):
@@ -372,10 +369,9 @@ class AcousticTrainingDataset(BaseDataset):
                 if len_r > 0:
                     energy_lst.append([-99.0] * len_r)
                 energy = self.energy_smooth(torch.from_numpy(np.concatenate(energy_lst, dtype=np.float32)).to(self.device)[None])[0]
-                processed_input['energy'] = energy
             else:
                 energy = self.energy_smooth(energy_data.to(self.device)[None])[0]
-                processed_input['energy'] = energy
+            processed_input['energy'] = energy
 
         if self.need_breathiness:
             # get ground truth breathiness
@@ -391,10 +387,9 @@ class AcousticTrainingDataset(BaseDataset):
                 if len_r > 0:
                     breathiness_lst.append([-99.0] * len_r)
                 breathiness = self.breathiness_smooth(torch.from_numpy(np.concatenate(breathiness_lst, dtype=np.float32)).to(self.device)[None])[0]
-                processed_input['breathiness'] = breathiness
             else:
                 breathiness = self.breathiness_smooth(breathiness_data.to(self.device)[None])[0]
-                processed_input['breathiness'] = breathiness
+            processed_input['breathiness'] = breathiness
 
         if not item['aug']:
             # get ground truth dur
@@ -424,7 +419,7 @@ class AcousticTrainingDataset(BaseDataset):
             if hparams.get('use_speed_embed', False):
                 processed_input['speed'] = 1.
         else:
-            aug_out = item['aug']['func'].process_item_wav(
+            aug_out = self.aug_ins.process_item_wav(
                 processed_input,
                 self.vocoder,
                 wav,

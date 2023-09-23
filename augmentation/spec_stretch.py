@@ -92,7 +92,7 @@ class SpectrogramStretchAugmentation(BaseAugmentation):
 
 
     def process_item_wav(self, item: dict, vocoder, wav, wav_torch, key_shift=0., speed=1., replace_spk_id=None, device='cpu') -> dict:
-        aug_item = deepcopy(item)
+        aug_item = item #deepcopy(item)
         mel = vocoder.wav2spec_direct(wav_torch, keyshift=key_shift, speed=speed, device=device)
 
         aug_item['mel'] = mel
@@ -111,7 +111,7 @@ class SpectrogramStretchAugmentation(BaseAugmentation):
             )
             aug_item['f0'] = torch.from_numpy(f0.astype(np.float32))
             for v_name in VARIANCE_CHECKLIST:
-                if v_name in item:
+                if v_name in aug_item:
                     aug_item[v_name] = torch.from_numpy(resample_align_curve(
                         aug_item[v_name].cpu().numpy(),
                         original_timestep=self.timestep,

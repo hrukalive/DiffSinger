@@ -122,6 +122,8 @@ class AcousticTask(BaseTask):
     def on_train_start(self):
         if self.use_vocoder and self.vocoder.get_device() != self.device:
             self.vocoder.to_device(self.device)
+        if self.train_dataset and hasattr(self.train_dataset, 'set_device'):
+            self.train_dataset.set_device(self.device)
 
     def _on_validation_start(self):
         if self.use_vocoder and self.vocoder.get_device() != self.device:

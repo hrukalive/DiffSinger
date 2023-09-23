@@ -151,6 +151,7 @@ class DsBatchSampler(Sampler):
 
         if self.shuffle_batch:
             rng.shuffle(self.batches)
+        self.formed = self.epoch + self.seed
 
         del indices
         del batches
@@ -168,8 +169,7 @@ class DsBatchSampler(Sampler):
 
     def set_epoch(self, epoch):
         self.epoch = epoch
-        if hasattr(self.dataset, 'set_epoch'):
-            self.dataset.set_epoch(epoch)
+        self.__form_batches()
 
 
 class DsEvalBatchSampler(Sampler):

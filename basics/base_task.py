@@ -214,6 +214,8 @@ class BaseTask(pl.LightningModule):
     def on_train_epoch_start(self):
         if self.train_dataset and hasattr(self.train_dataset, 'set_device'):
             self.train_dataset.set_device(self.device)
+        if self.train_dataset and hasattr(self.train_dataset, 'set_epoch'):
+            self.train_dataset.set_epoch(self.current_epoch)
         if self.training_sampler is not None:
             self.training_sampler.set_epoch(self.current_epoch)
 
