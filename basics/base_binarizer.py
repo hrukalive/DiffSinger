@@ -343,16 +343,16 @@ class BaseBinarizer:
             json.dump(extra_info, f)
         if apply_augmentation:
             print(f"| {prefix} total duration (before augmentation): {sum(total_raw_sec.values()):.2f}s")
-            for k, v in sorted(total_raw_sec.items(), key=lambda x: x[1], reverse=True):
+            for k, v in total_raw_sec.items():
                 print(f"|     {k}: {v:.2f}s")
             print(
                 f"| {prefix} total duration (after augmentation): {sum(total_sec.values()):.2f}s ({sum(total_sec.values()) / sum(total_raw_sec.values()):.2f}x)"
             )
-            for k, v in sorted(total_sec.items(), key=lambda x: x[1], reverse=True):
+            for k, v in total_sec.items():
                 print(f"|     {k}: {v:.2f}s")
         else:
             print(f"| {prefix} total duration: {sum(total_raw_sec.values()):.2f}s")
-            for k, v in sorted(total_raw_sec.items(), key=lambda x: x[1], reverse=True):
+            for k, v in total_raw_sec.items():
                 print(f"|     {k}: {v:.2f}s")
 
 

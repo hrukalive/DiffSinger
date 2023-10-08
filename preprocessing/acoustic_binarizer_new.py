@@ -62,19 +62,19 @@ class AcousticBinarizerNew(BaseBinarizer):
     def load_meta_data(self, raw_data_dir, ph_map, ds_id, spk_id):
         meta_data_dict = {}
         if (raw_data_dir / 'transcriptions.csv').exists():
-            for utterance_label in csv.DictReader(
-                    open(raw_data_dir / 'transcriptions.csv', 'r', encoding='utf-8')
-            ):
-                item_name = utterance_label['name']
-                temp_dict = {
-                    'wav_fn': str(raw_data_dir / 'wavs' / f'{item_name}.wav'),
-                    'ph_seq': [ph_map.get(x, x) for x in utterance_label['ph_seq'].split()],
-                    'ph_dur': [float(x) for x in utterance_label['ph_dur'].split()],
-                    'spk_id': spk_id,
-                }
-                assert len(temp_dict['ph_seq']) == len(temp_dict['ph_dur']), \
-                    f'Lengths of ph_seq and ph_dur mismatch in \'{item_name}\'.'
-                meta_data_dict[f'{ds_id}:{item_name}'] = temp_dict
+            with open(raw_data_dir / 'transcriptions.csv', 'r', encoding='utf-8') as f:
+                for utterance_label in csv.DictReader(f):
+                    item_name = utterance_label['name']
+                    temp_dict = {
+                        'wav_fn': str(raw_data_dir / 'wavs' / f'{item_name}.wav'),
+                        'ph_seq': [ph_map.get(x, x) for x in utterance_label['ph_seq'].split()],
+                        'ph_dur': [float(x) for x in utterance_label['ph_dur'].split()],
+                        'spk_id': spk_id,
+                        'spk': self.speakers[ds_id],
+                    }
+                    assert len(temp_dict['ph_seq']) == len(temp_dict['ph_dur']), \
+                        f'Lengths of ph_seq and ph_dur mismatch in \'{item_name}\'.'
+                    meta_data_dict[f'{ds_id}:{item_name}'] = temp_dict
         else:
             raise FileNotFoundError(
                 f'transcriptions.csv not found in {raw_data_dir}. '
@@ -90,7 +90,7 @@ class AcousticBinarizerNew(BaseBinarizer):
             self.load_meta_data(data_dir, ph_map, ds_id=ds_id, spk_id=spk_id)
 
         self.item_names = list(self.items.keys())
-        self._train_item_names, self._valid_item_names = self.split_train_valid_set()
+        self._train_item_names, self._valid_item_names = self.split_train_valid_set(self.item_names)
 
         self.binary_data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -106,7 +106,7 @@ class AcousticBinarizerNew(BaseBinarizer):
             print([(x, y['spk_id']) for x, y in self.meta_data_iterator('valid')])
             self.process_dataset(
                 'valid',
-                num_workers=int(self.binarization_args['num_workers']),
+                num_workers=0#int(self.binarization_args['num_workers']),
             )
             self.process_dataset(
                 'train',
@@ -124,11 +124,7 @@ class AcousticBinarizerNew(BaseBinarizer):
 
         reverse_spk_map = {v: k for k, v in self.spk_map.items()}
         total_sec = {k: 0.0 for k in self.spk_map}
-        extra_info = {
-            'lengths': {},
-            'seconds': {},
-            'spk_ids': {},
-        }
+        extra_info = {'name': {}, 'spk_ids': {}, 'spk': {}, 'lengths': {}}
 
         def postprocess(item):
             nonlocal total_sec, extra_info
@@ -136,12 +132,17 @@ class AcousticBinarizerNew(BaseBinarizer):
                 return
             if prefix == 'valid':
                 item_no = builder.add_item(item, item['item_no'])
-                print(item['item_no'], item['name'], item['spk_id'])
             else:
                 item_no = builder.add_item(item)
-            extra_info['lengths'][item_no] = item['length']
-            extra_info['seconds'][item_no] = item['seconds']
+            for k, v in item.items():
+                if isinstance(v, np.ndarray):
+                    if k not in extra_info:
+                        extra_info[k] = {}
+                    extra_info[k][item_no] = v.shape[0]
+            extra_info['name'][item_no] = item['name'].split(':', 1)[-1]
             extra_info['spk_ids'][item_no] = item['spk_id']
+            extra_info['spk'][item_no] = item['spk']
+            extra_info['lengths'][item_no] = item['length']
             total_sec[reverse_spk_map[item['spk_id']]] += item['seconds']
 
         try:
@@ -157,30 +158,25 @@ class AcousticBinarizerNew(BaseBinarizer):
                 for a in tqdm(args, ncols=100):
                     item = self.process_item(*a)
                     postprocess(item)
-            extra_info['lengths'] = list(map(lambda x: x[1], sorted(extra_info['lengths'].items(), key=lambda x: x[0])))
-            extra_info['seconds'] = list(map(lambda x: x[1], sorted(extra_info['seconds'].items(), key=lambda x: x[0])))
-            extra_info['spk_ids'] = list(map(lambda x: x[1], sorted(extra_info['spk_ids'].items(), key=lambda x: x[0])))
-            extra_info['sp_token'] = self.phone_encoder.encode(['SP'])[0]
-            assert len(extra_info['lengths']) == len(extra_info['seconds']) == len(extra_info['spk_ids'])
-            assert len(extra_info['lengths']) == len(args)
+            for k in extra_info:
+                for item_no in range(len(extra_info[k])):
+                    assert item_no in extra_info[k], f'Item numbering is not consecutive.'
+                extra_info[k] = list(map(lambda x: x[1], sorted(extra_info[k].items(), key=lambda x: x[0])))
+                extra_info['sp_token'] = self.phone_encoder.encode(['SP'])[0]
         except KeyboardInterrupt:
             builder.finalize()
             raise
         builder.finalize()
         if prefix == 'train':
-            with open(self.binary_data_dir / f'{prefix}.json', 'w') as f:
-                # noinspection PyTypeChecker
-                json.dump(extra_info, f)
-        elif prefix == 'valid':
-            with open(self.binary_data_dir / f'{prefix}.lengths', 'wb') as f:
-                # noinspection PyTypeChecker
-                np.save(f, extra_info['lengths'])
-        else:
-            raise NotImplementedError
+            extra_info.pop('name')
+            extra_info.pop('spk')
+        with open(self.binary_data_dir / f'{prefix}.meta', 'w') as f:
+            # noinspection PyTypeChecker
+            json.dump(extra_info, f)
 
         ref_len = np.percentile(sorted(total_sec.values()), 80)
         print(f'| {prefix} total duration: {sum(total_sec.values()):.3f}s')
-        for k, v in sorted(total_sec.items(), key=lambda x: x[1], reverse=True):
+        for k, v in total_sec.items():
             if v > 0 and v < ref_len:
                 print(f'|     {k}: {v:.3f}s ({ref_len / v:.2f}x)')
             else:

@@ -75,7 +75,7 @@ class AcousticTrainingDataset(BaseDataset):
         hparams['num_spk'] = max_spk_id + 1
 
         self.spk_data = {}
-        with open(os.path.join(self.data_dir, f'{self.prefix}.json')) as f:
+        with open(os.path.join(self.data_dir, f'{self.prefix}.meta')) as f:
             self.extra_info = json.load(f)
             for data_idx, spk_id in enumerate(self.extra_info['spk_ids']):
                 if spk_id not in self.spk_data:
@@ -146,9 +146,10 @@ class AcousticTrainingDataset(BaseDataset):
         return ret
     
     def set_device(self, device):
-        self.device = device
-        self.energy_smooth.to(device)
-        self.breathiness_smooth.to(device)
+        # self.device = device
+        # self.energy_smooth.to(device)
+        # self.breathiness_smooth.to(device)
+        pass
 
     def set_epoch(self, epoch):
         if self.prev_epoch == epoch + self.seed:
@@ -434,10 +435,10 @@ class AcousticTrainingDataset(BaseDataset):
     def collater(self, samples, max_len):
         batch = super().collater(samples)
 
-        tokens = utils.collate_nd([s['tokens'] for s in samples], 0, max_len)
-        f0 = utils.collate_nd([s['f0'] for s in samples], 0.0, max_len)
-        mel2ph = utils.collate_nd([s['mel2ph'] for s in samples], 0, max_len)
-        mel = utils.collate_nd([s['mel'] for s in samples], 0.0, max_len)
+        tokens = utils.collate_nd([s['tokens'] for s in samples], 0)
+        f0 = utils.collate_nd([s['f0'] for s in samples], 0.0)
+        mel2ph = utils.collate_nd([s['mel2ph'] for s in samples], 0)
+        mel = utils.collate_nd([s['mel'] for s in samples], 0.0)
         batch.update({
             'tokens': tokens,
             'mel2ph': mel2ph,
@@ -447,7 +448,7 @@ class AcousticTrainingDataset(BaseDataset):
             'f0_lengths': torch.LongTensor([s['f0'].shape[0] for s in samples]),
         })
         for v_name, v_pad in self.required_variances.items():
-            batch[v_name] = utils.collate_nd([s[v_name] for s in samples], v_pad, max_len)
+            batch[v_name] = utils.collate_nd([s[v_name] for s in samples], v_pad)
         if self.need_key_shift:
             batch['key_shift'] = torch.FloatTensor([s['key_shift'] for s in samples])[:, None]
         if self.need_speed:
