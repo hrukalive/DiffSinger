@@ -71,7 +71,7 @@ max_updates: 120000
 max_batch_frames: 32000
 max_batch_size: 100000
 max_val_batch_frames: 60000
-max_val_batch_size: 1
+val_batch_size: 1
 train_set_name: 'train'
 valid_set_name: 'valid'
 pe: 'parselmouth'
@@ -92,7 +92,7 @@ pl_trainer_strategy:
   name: auto
   process_group_backend: nccl
   find_unused_parameters: false
-nccl_no_p2p: false
+nccl_p2p: true
 
 ###########
 # finetune

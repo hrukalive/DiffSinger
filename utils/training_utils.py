@@ -74,7 +74,8 @@ class DsBatchSampler(Sampler):
     def __init__(self, dataset, max_batch_frames, max_batch_size, sub_indices=None,
                  num_replicas=None, rank=None,
                  required_batch_count_multiple=1, batch_by_size=True, sort_by_similar_size=True,
-                 shuffle_sample=False, shuffle_batch=False, seed=0, drop_last=False) -> None:
+                 batch_size_reversed=False, shuffle_sample=False, shuffle_batch=False,
+                 seed=0, drop_last=False) -> None:
         self.dataset = dataset
         self.max_batch_frames = max_batch_frames
         self.max_batch_size = max_batch_size
@@ -84,6 +85,7 @@ class DsBatchSampler(Sampler):
         self.required_batch_count_multiple = required_batch_count_multiple
         self.batch_by_size = batch_by_size
         self.sort_by_similar_size = sort_by_similar_size
+        self.batch_size_reversed = batch_size_reversed
         self.shuffle_sample = shuffle_sample
         self.shuffle_batch = shuffle_batch
         self.seed = seed
@@ -104,9 +106,9 @@ class DsBatchSampler(Sampler):
                 indices = rng.permutation(len(self.dataset))
 
             if self.sort_by_similar_size:
-                grid = int(hparams.get('sampler_frame_count_grid', 200))
+                grid = int(hparams.get('sampler_frame_count_grid', 6))
                 assert grid > 0
-                sizes = (np.round(np.array(self.dataset.sizes)[indices] / grid) * grid).clip(grid, None).astype(np.int64)
+                sizes = (np.round(np.array(self.dataset.sizes)[indices] / grid) * grid).clip(grid, None)
                 indices = indices[np.argsort(sizes, kind='mergesort')]
 
             indices = indices.tolist()
@@ -148,6 +150,8 @@ class DsBatchSampler(Sampler):
                     batch_assignment[(i + self.epoch * self.required_batch_count_multiple) % floored_batch_count])
 
         self.batches = [deepcopy(batches[i]) for i in batch_assignment]
+        if self.batch_size_reversed:
+            self.batches = self.batches[::-1]
 
         if self.shuffle_batch:
             rng.shuffle(self.batches)
@@ -173,9 +177,8 @@ class DsBatchSampler(Sampler):
 
 
 class DsEvalBatchSampler(Sampler):
-    def __init__(self, dataset, max_batch_size, num_replicas=None, rank=None) -> None:
+    def __init__(self, dataset, batch_size, num_replicas=None, rank=None) -> None:
         self.dataset = dataset
-        self.max_batch_size = max_batch_size
 
         ceiled_count = math.ceil(len(dataset) / num_replicas) * num_replicas
         indices = np.arange(0, ceiled_count)
@@ -183,11 +186,9 @@ class DsEvalBatchSampler(Sampler):
 
         indices = indices.reshape(-1, num_replicas).transpose()[rank].tolist()
         self.batches = [
-            indices[i:i + max_batch_size]
-            for i in range(0, len(indices), max_batch_size)
+            indices[i:i + batch_size]
+            for i in range(0, len(indices), batch_size)
         ]
-
-        self.max_mel_len = max(self.dataset.sizes)
 
     def __iter__(self):
         return iter(self.batches)

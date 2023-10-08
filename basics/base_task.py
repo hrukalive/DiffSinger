@@ -17,7 +17,6 @@ matplotlib.use('Agg')
 import torch.utils.data
 from torchmetrics import Metric, MeanMetric
 import lightning.pytorch as pl
-from lightning.pytorch.callbacks import LearningRateMonitor
 from lightning.pytorch.loggers import TensorBoardLogger
 from lightning.pytorch.utilities.rank_zero import rank_zero_debug, rank_zero_info, rank_zero_only
 
@@ -69,9 +68,9 @@ class BaseTask(pl.LightningModule):
         self.max_val_batch_frames = hparams['max_val_batch_frames']
         if self.max_val_batch_frames == -1:
             hparams['max_val_batch_frames'] = self.max_val_batch_frames = self.max_batch_frames
-        self.max_val_batch_size = hparams['max_val_batch_size']
-        if self.max_val_batch_size == -1:
-            hparams['max_val_batch_size'] = self.max_val_batch_size = self.max_batch_size
+        self.val_batch_size = hparams['val_batch_size']
+        if self.val_batch_size == -1:
+            hparams['val_batch_size'] = self.val_batch_size = self.max_batch_size
 
         self.training_sampler = None
         self.valid_sampler = None
@@ -88,11 +87,13 @@ class BaseTask(pl.LightningModule):
     # Training, validation and testing
     ###########
     def setup(self, stage):
-        self.phone_encoder = self.build_phone_encoder()
         if hasattr(pl.accelerators, 'XLAAccelerator'):
             self.use_tpu = isinstance(self.trainer.accelerator, pl.accelerators.XLAAccelerator)
-        else:
+        elif hasattr(pl.accelerators, 'TPUAccelerator'):
             self.use_tpu = isinstance(self.trainer.accelerator, pl.accelerators.TPUAccelerator)
+        else:
+            self.use_tpu = False
+        self.phone_encoder = self.build_phone_encoder()
         self.train_dataset = self.dataset_train_cls(hparams['train_set_name'], preload=self.use_tpu)
         self.valid_dataset = self.dataset_valid_cls(hparams['valid_set_name'], preload=self.use_tpu)
         self.model = self.build_model()
@@ -248,6 +249,9 @@ class BaseTask(pl.LightningModule):
         pass
 
     def on_validation_start(self):
+        if self.skip_immediate_validation:
+            rank_zero_debug(f"Skip validation")
+            return
         self._on_validation_start()
         for metric in self.valid_losses.values():
             metric.to(self.device)
@@ -349,6 +353,7 @@ class BaseTask(pl.LightningModule):
             num_replicas=self.num_replicas,
             rank=self.global_rank,
             sort_by_similar_size=not self.use_tpu and hparams['sort_by_len'],
+            batch_size_reversed=True,
             batch_by_size=not self.use_tpu,
             required_batch_count_multiple=hparams['accumulate_grad_batches'],
             shuffle_sample=True,
@@ -372,7 +377,7 @@ class BaseTask(pl.LightningModule):
     def val_dataloader(self):
         self.valid_sampler = DsEvalBatchSampler(
             self.valid_dataset,
-            max_batch_size=self.max_val_batch_size,
+            batch_size=self.val_batch_size,
             num_replicas=self.num_replicas,
             rank=self.global_rank
         )
@@ -384,8 +389,7 @@ class BaseTask(pl.LightningModule):
             ),
             batch_sampler=self.valid_sampler,
             num_workers=hparams['ds_workers'],
-            prefetch_factor=hparams['dataloader_prefetch_factor'],
-            shuffle=False
+            prefetch_factor=hparams['dataloader_prefetch_factor']
         )
 
     def test_dataloader(self):

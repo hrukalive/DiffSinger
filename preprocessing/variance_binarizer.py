@@ -61,15 +61,6 @@ class VarianceBinarizer(BaseBinarizer):
         self.lr = LengthRegulator().to(self.device)
         self.prefer_ds = self.binarization_args['prefer_ds']
         self.cached_ds = {}
-        self.data_duplication = hparams['data_duplication']
-        
-        self.replacer = defaultdict(list)
-        if 'ph_replacer' in hparams and hparams['ph_replacer']:
-            with open(hparams['ph_replacer'], 'r') as f:
-                for line in f:
-                    line = line.strip().split()
-                    for ph in line:
-                        self.replacer[line[0]].append(ph)
 
     def load_attr_from_ds(self, ds_id, name, attr, idx=0):
         item_name = f'{ds_id}:{name}'
@@ -97,40 +88,29 @@ class VarianceBinarizer(BaseBinarizer):
 
     def load_meta_data(self, raw_data_dir: pathlib.Path, ph_map, ds_id, spk_id):
         meta_data_dict = {}
-        dup = self.data_duplication[self.speakers[ds_id]]
+        with open(raw_data_dir / 'transcriptions.csv', 'r', encoding='utf8') as f:
+            for utterance_label in csv.DictReader(f):
+                utterance_label: dict
+                item_name = utterance_label['name']
+                item_idx = int(item_name.rsplit(DS_INDEX_SEP, maxsplit=1)[-1]) if DS_INDEX_SEP in item_name else 0
 
-        for utterance_label in csv.DictReader(
-                open(raw_data_dir / 'transcriptions.csv', 'r', encoding='utf8')
-        ):
-            utterance_label: dict
-            item_name = utterance_label['name']
-            item_idx = int(item_name.rsplit(DS_INDEX_SEP, maxsplit=1)[-1]) if DS_INDEX_SEP in item_name else 0
-
-            def require(attr):
-                if self.prefer_ds:
-                    value = self.load_attr_from_ds(ds_id, item_name, attr, item_idx)
-                else:
-                    value = None
-                if value is None:
-                    value = utterance_label.get(attr)
-                if value is None:
-                    raise ValueError(f'Missing required attribute {attr} of item \'{item_name}\'.')
-                return value
-
-            dup_cnt = dup
-            while random() < dup_cnt:
-                dup_cnt -= 1
-                rand_seq = []
-                for ph in [ph_map.get(x, x) for x in require('ph_seq').split()]:
-                    if ph in self.replacer:
-                        rand_seq.append(choice(self.replacer[ph]))
+                def require(attr):
+                    if self.prefer_ds:
+                        value = self.load_attr_from_ds(ds_id, item_name, attr, item_idx)
                     else:
-                        rand_seq.append(ph)
+                        value = None
+                    if value is None:
+                        value = utterance_label.get(attr)
+                    if value is None:
+                        raise ValueError(f'Missing required attribute {attr} of item \'{item_name}\'.')
+                    return value
+
                 temp_dict = {
                     'ds_idx': item_idx,
                     'spk_id': spk_id,
+                    'spk': self.speakers[ds_id],
                     'wav_fn': str(raw_data_dir / 'wavs' / f'{item_name}.wav'),
-                    'ph_seq': rand_seq,
+                    'ph_seq': [ph_map.get(x, x) for x in require('ph_seq').split()],
                     'ph_dur': [float(x) for x in require('ph_dur').split()]
                 }
 
@@ -149,9 +129,7 @@ class VarianceBinarizer(BaseBinarizer):
                         f'Lengths of note_seq and note_dur mismatch in \'{item_name}\'.'
                     assert any([note != 'rest' for note in temp_dict['note_seq']]), \
                         f'All notes are rest in \'{item_name}\'.'
-
-                meta_data_dict[f'{ds_id}:{item_name}_{dup_cnt}'] = temp_dict
-
+                meta_data_dict[f'{ds_id}:{item_name}'] = temp_dict
         self.items.update(meta_data_dict)
 
     def check_coverage(self):
@@ -208,6 +186,7 @@ class VarianceBinarizer(BaseBinarizer):
             'name': item_name,
             'wav_fn': meta_data['wav_fn'],
             'spk_id': meta_data['spk_id'],
+            'spk': meta_data['spk'],
             'seconds': seconds,
             'length': length,
             'tokens': np.array(self.phone_encoder.encode(meta_data['ph_seq']), dtype=np.int64)

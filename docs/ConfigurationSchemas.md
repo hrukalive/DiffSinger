@@ -1790,6 +1790,30 @@ int
 
 48
 
+### dataset_size_key
+
+Specify which metadata to use as the sizes to form batches.
+
+#### visibility
+
+acoustic, variance
+
+#### scope
+
+training
+
+#### customizability
+
+reserved
+
+#### type
+
+string
+
+#### default
+
+lengths
+
 ### max_beta
 
 Max beta of the DDPM noise schedule.
@@ -1862,9 +1886,9 @@ int
 
 60000
 
-### max_val_batch_size
+### val_batch_size
 
-The maximum validation batch size.
+Validation batch size.
 
 #### visibility
 

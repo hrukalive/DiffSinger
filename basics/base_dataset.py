@@ -1,3 +1,4 @@
+import json
 import os
 
 import numpy as np
@@ -22,11 +23,13 @@ class BaseDataset(Dataset):
             the index function.
     """
 
-    def __init__(self, prefix, preload):
+    def __init__(self, prefix, size_key, preload=False):
         super().__init__()
         self.prefix = prefix
         self.data_dir = hparams['binary_data_dir']
-        self.sizes = np.load(os.path.join(self.data_dir, f'{self.prefix}.lengths'))
+        with open(os.path.join(self.data_dir, f'{self.prefix}.meta'), 'r') as f:
+            self.metadata = json.load(f)
+        self.sizes = self.metadata[size_key]
         self._indexed_ds = IndexedDataset(self.data_dir, self.prefix)
         if preload:
             self.indexed_ds = [self._indexed_ds[i] for i in range(len(self._indexed_ds))]
