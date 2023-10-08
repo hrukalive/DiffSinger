@@ -17,7 +17,7 @@ from modules.metrics.curve import RawCurveAccuracy
 from modules.metrics.duration import PhonemeDurationAccuracy, RhythmCorrectness
 from modules.toplevel import DiffSingerVariance
 from utils.hparams import hparams
-from utils.plot import get_bitmap_size, figure_to_image, curve_to_figure, dur_to_figure
+from utils.plot import get_bitmap_size, figure_to_image, pitch_note_to_figure, curve_to_figure, dur_to_figure
 
 matplotlib.use('Agg')
 
@@ -51,6 +51,23 @@ class VarianceDataset(BaseDataset):
                 'midi_lengths': torch.LongTensor([s['midi'].shape[0] for s in samples]),
             })
         if hparams['predict_pitch']:
+            if hparams['use_melody_encoder']:
+                batch.update({
+                    'note_midi': utils.collate_nd([s['note_midi'] for s in samples], -1),
+                    'note_midi_lengths': torch.LongTensor([s['note_midi'].shape[0] for s in samples]),
+                    'note_rest': utils.collate_nd([s['note_rest'] for s in samples], True),
+                    'note_rest_lengths': torch.LongTensor([s['note_rest'].shape[0] for s in samples]),
+                    'note_dur': utils.collate_nd([s['note_dur'] for s in samples], 0),
+                    'note_dur_lengths': torch.LongTensor([s['note_dur'].shape[0] for s in samples]),
+                    'mel2note': utils.collate_nd([s['mel2note'] for s in samples], 0),
+                    'mel2note_lengths': torch.LongTensor([s['mel2note'].shape[0] for s in samples]),
+                })
+                if hparams['use_glide_embed']:
+                    batch.update({
+                        'note_glide': utils.collate_nd([s['note_glide'] for s in samples], 0),
+                        'note_glide_lengths': torch.LongTensor([s['note_glide'].shape[0] for s in samples]),
+                    })
+
             batch.update({
                 'base_pitch': utils.collate_nd([s['base_pitch'] for s in samples], 0, max_len),
                 'base_pitch_lengths': torch.LongTensor([s['base_pitch'].shape[0] for s in samples]),
@@ -148,6 +165,13 @@ class VarianceTask(BaseTask):
         ph2word = sample.get('ph2word')  # [B, T_ph]
         midi = sample.get('midi')  # [B, T_ph]
         mel2ph = sample.get('mel2ph')  # [B, T_s]
+
+        note_midi = sample.get('note_midi')  # [B, T_n]
+        note_rest = sample.get('note_rest')  # [B, T_n]
+        note_dur = sample.get('note_dur')  # [B, T_n]
+        note_glide = sample.get('note_glide')  # [B, T_n]
+        mel2note = sample.get('mel2note')  # [B, T_s]
+
         base_pitch = sample.get('base_pitch')  # [B, T_s]
         pitch = sample.get('pitch')  # [B, T_s]
         energy = sample.get('energy')  # [B, T_s]
@@ -170,6 +194,8 @@ class VarianceTask(BaseTask):
         output = self.model(
             txt_tokens, midi=midi, ph2word=ph2word,
             ph_dur=ph_dur, mel2ph=mel2ph,
+            note_midi=note_midi, note_rest=note_rest,
+            note_dur=note_dur, note_glide=note_glide, mel2note=mel2note,
             base_pitch=base_pitch, pitch=pitch,
             energy=energy, breathiness=breathiness,
             pitch_retake=pitch_retake, variance_retake=variance_retake,
@@ -238,8 +264,7 @@ class VarianceTask(BaseTask):
                 pdur_pred=dur_preds, pdur_target=dur_gt, ph2word=ph2word, mask=mask
             )
         if self.model.predict_pitch:
-            base_pitch = sample['base_pitch']
-            pred_pitch = base_pitch + pitch_preds
+            pred_pitch = sample['base_pitch'] + pitch_preds
             gt_pitch = sample['pitch']
             mask = (sample['mel2ph'] > 0) & ~sample['uv']
             self.pitch_acc.update(pred=pred_pitch, target=gt_pitch, mask=mask)
@@ -333,6 +358,17 @@ class VarianceTask(BaseTask):
         img_shape = tuple(map(lambda x: slice(0, x), img.shape))
         self.validation_results['dur_imgs'][val_idx][img_shape] = torch.tensor(img)
         self.validation_results['dur_sizes'][val_idx] = torch.LongTensor(img.shape)
+
+    def plot_pitch(self, batch_idx, gt_pitch, pred_pitch, note_midi, note_dur, note_rest):
+        name = f'pitch_{batch_idx}'
+        gt_pitch = gt_pitch[0].cpu().numpy()
+        pred_pitch = pred_pitch[0].cpu().numpy()
+        note_midi = note_midi[0].cpu().numpy()
+        note_dur = note_dur[0].cpu().numpy()
+        note_rest = note_rest[0].cpu().numpy()
+        self.logger.experiment.add_figure(name, pitch_note_to_figure(
+            gt_pitch, pred_pitch, note_midi, note_dur, note_rest
+        ), self.global_step)
 
     def plot_curve(self, data_idx, val_idx, gt_curve, pred_curve, base_curve=None, grid=None, curve_name='curve'):
         assert curve_name is not None
