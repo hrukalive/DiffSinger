@@ -7,15 +7,15 @@ from typing import Dict
 import lightning.pytorch as pl
 import numpy as np
 import torch
+from lightning.fabric.loggers.tensorboard import _TENSORBOARD_AVAILABLE
 from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar
-from lightning.pytorch.strategies import Strategy
-from lightning.pytorch.utilities.rank_zero import rank_zero_info
+from lightning.pytorch.loggers import TensorBoardLogger
+from lightning.pytorch.utilities.rank_zero import rank_zero_info, rank_zero_only
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data.distributed import Sampler
 
 import utils
 from utils.hparams import hparams
-
 
 # ==========LR schedulers==========
 
@@ -322,6 +322,40 @@ class DsTQDMProgressBar(TQDMProgressBar):
                     items[k] = np.format_float_scientific(v, precision=3, unique=True, min_digits=2, trim='-')
         items.pop("v_num", None)
         return items
+
+
+class DsTensorBoardLogger(TensorBoardLogger):
+    @property
+    def all_rank_experiment(self):
+        if rank_zero_only.rank == 0:
+            return self.experiment
+        if hasattr(self, "_all_rank_experiment") and self._all_rank_experiment is not None:
+            return self._all_rank_experiment
+
+        assert rank_zero_only.rank != 0
+        if self.root_dir:
+            self._fs.makedirs(self.root_dir, exist_ok=True)
+
+        if _TENSORBOARD_AVAILABLE:
+            from torch.utils.tensorboard import SummaryWriter
+        else:
+            from tensorboardX import SummaryWriter  # type: ignore[no-redef]
+
+        self._all_rank_experiment = SummaryWriter(log_dir=self.log_dir, **self._kwargs)
+        return self._all_rank_experiment
+
+    def finalize(self, status: str) -> None:
+        if rank_zero_only.rank == 0:
+            super().finalize(status)
+        elif hasattr(self, "_all_rank_experiment") and self._all_rank_experiment is not None:
+            self.all_rank_experiment.flush()
+            self.all_rank_experiment.close()
+
+    def __getstate__(self):
+        state = super().__getstate__()
+        if "_all_rank_experiment" in state:
+            del state["_all_rank_experiment"]
+        return state
 
 
 def get_strategy(strategy):

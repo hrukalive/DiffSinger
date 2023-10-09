@@ -148,41 +148,6 @@ class AcousticTask(BaseTask):
     def _on_validation_start(self):
         if self.use_vocoder and self.vocoder.get_device() != self.device:
             self.vocoder.to_device(self.device)
-        num_valid_plots = min(hparams['num_valid_plots'], len(self.valid_dataset))
-        valid_per_replica = ceil(num_valid_plots / self.num_replicas)
-        max_mel_len = max(self.valid_dataset.metadata['mel'][:num_valid_plots])
-        max_wav_len = max_mel_len * hparams['hop_size'] + hparams['win_size']
-        img_shape = get_bitmap_size('spec')
-        self.validation_results = {
-            'idxs': -torch.ones(valid_per_replica, dtype=torch.long),
-            'pred_mel_imgs': torch.zeros((valid_per_replica, *img_shape), dtype=torch.uint8),
-        }
-        if self.use_shallow_diffusion:
-            self.validation_results['aux_mel_imgs'] = torch.zeros((valid_per_replica, *img_shape), dtype=torch.uint8)
-        if self.use_vocoder:
-            if self.use_shallow_diffusion:
-                self.validation_results['aux_wavs'] = torch.zeros(valid_per_replica, max_wav_len)
-                self.validation_results['aux_wav_lens'] = torch.zeros(valid_per_replica, dtype=torch.long)
-            self.validation_results['pred_wavs'] = torch.zeros(valid_per_replica, max_wav_len)
-            self.validation_results['pred_wav_lens'] = torch.zeros(valid_per_replica, dtype=torch.long)
-        # Logging GT wav to tensorboard if not yet logged
-        if self.trainer.is_global_zero:
-            for idx in range(num_valid_plots):
-                if idx not in self.logged_gt_wav:
-                    sample = self.valid_dataset[idx]
-                    gt_wav = self.vocoder.spec2wav_torch(
-                        sample['mel'].to(self.device).unsqueeze(0),
-                        f0=sample['f0'].to(self.device).unsqueeze(0)
-                    )
-                    self.logger.experiment.add_audio(
-                        f'gt_{idx}',
-                        gt_wav,
-                        sample_rate=hparams['audio_sample_rate'],
-                        global_step=self.global_step
-                    )
-                    self.logged_gt_wav.add(idx)
-        self.trainer.strategy.barrier()
-
 
     def _validation_step(self, sample, batch_idx):
         data_idx_base = batch_idx * (self.num_replicas * self.val_batch_size) + self.global_rank
@@ -190,108 +155,64 @@ class AcousticTask(BaseTask):
         num_valid_plots = min(hparams['num_valid_plots'], len(self.valid_dataset))
         if data_idx_base < num_valid_plots and self.trainer.state.stage is RunningStage.VALIDATING:
             mel_out: ShallowDiffusionOutput = self.run_model(sample, infer=True)
-            for idx in range(sample['size']):
-                data_idx = data_idx_base + idx * self.num_replicas
-                if data_idx < num_valid_plots:
-                    val_idx = idx + batch_idx * self.val_batch_size
-                    self.validation_results['idxs'][val_idx] = data_idx
-            # Plots
-            self.plot_mel(sample, mel_out, data_idx_base, batch_idx)
             if self.use_vocoder:
-                self.plot_wav(sample, mel_out, data_idx_base, batch_idx)
+                self.plot_wav(
+                    data_idx_base, sample['mel'], mel_out.aux_out, mel_out.diff_out,
+                    sample['mel_lengths'], sample['f0'], sample['f0_lengths']
+                )
+            if mel_out.aux_out is not None:
+                self.plot_mel(data_idx_base, sample['mel'], mel_out.aux_out, sample['mel_lengths'], 'auxmel')
+            if mel_out.diff_out is not None:
+                self.plot_mel(data_idx_base, sample['mel'], mel_out.diff_out, sample['mel_lengths'], 'diffmel')
         return losses, sample['size']
 
-
-    def _on_validation_epoch_end(self):
-        if self.trainer.state.stage is RunningStage.VALIDATING:
-            gathered = self.all_gather(self.validation_results)
-            if self.trainer.is_global_zero:
-                # Need to flatten when using multiple devices
-                if self.num_replicas > 1:
-                    gathered = {
-                        k: v.transpose(0, 1).flatten(0, 1)
-                        for k, v in gathered.items()
-                    }
-                # Iterate and upload to Tensorboard
-                for i in range(len(gathered['idxs'])):
-                    idx = gathered['idxs'][i]
-                    if idx < 0:
-                        continue
-                    # Diff prediction
-                    pred_mel_img = gathered['pred_mel_imgs'][i]
-                    pred_wav_len = gathered['pred_wav_lens'][i]
-                    pred_wav = gathered['pred_wavs'][i, :pred_wav_len]
-                    self.logger.experiment.add_image(
-                        f'diffmel_{idx}',
-                        pred_mel_img,
-                        self.global_step
-                    )
-                    if self.use_vocoder:
-                        self.logger.experiment.add_audio(
-                            f'pred_{idx}',
-                            pred_wav,
-                            sample_rate=hparams['audio_sample_rate'],
-                            global_step=self.global_step
-                        )
-                    # Aux prediction
-                    if self.use_shallow_diffusion:
-                        aux_mel_img = gathered['aux_mel_imgs'][i]
-                        aux_wav_len = gathered['aux_wav_lens'][i]
-                        aux_wav = gathered['aux_wavs'][i, :aux_wav_len]
-                        self.logger.experiment.add_image(
-                            f'auxmel_{idx}',
-                            aux_mel_img,
-                            self.global_step
-                        )
-                        if self.use_vocoder:
-                            self.logger.experiment.add_audio(
-                                f'aux_{idx}',
-                                aux_wav,
-                                sample_rate=hparams['audio_sample_rate'],
-                                global_step=self.global_step
-                            )
-            self.trainer.strategy.barrier()
 
     ############
     # validation plots
     ############
-    def plot_wav(self, sample, mel_out, data_idx_base, batch_idx):
+    def plot_wav(self, data_idx_base, gt_mels, aux_mels, diff_mels, mel_lengths, f0s, f0_lengths):
         num_valid_plots = min(hparams['num_valid_plots'], len(self.valid_dataset))
-        for idx in range(sample['size']):
+        for idx in range(len(mel_lengths)):
             data_idx = data_idx_base + idx * self.num_replicas
             if data_idx < num_valid_plots:
-                val_idx = idx + batch_idx * self.val_batch_size
-                mel_len = sample['mel_lengths'][idx]
-                f0 = sample['f0'][idx, :sample['f0_lengths'][idx]].unsqueeze(0)
-                if self.use_shallow_diffusion:
-                    aux_mel = mel_out.aux_out[idx, :mel_len].unsqueeze(0)
+                mel_len = mel_lengths[idx]
+                f0 = f0s[idx, :f0_lengths[idx]].unsqueeze(0)
+                if data_idx not in self.logged_gt_wav:
+                    gt_mel = gt_mels[idx, :mel_len].unsqueeze(0)
+                    gt_wav = self.vocoder.spec2wav_torch(gt_mel, f0=f0)
+                    self.logger.all_rank_experiment.add_audio(
+                        f'gt_{data_idx}', gt_wav,
+                        sample_rate=hparams['audio_sample_rate'],
+                        global_step=self.global_step
+                    )
+                    self.logged_gt_wav.add(data_idx)
+                if aux_mels is not None:
+                    aux_mel = aux_mels[idx, :mel_len].unsqueeze(0)
                     aux_wav = self.vocoder.spec2wav_torch(aux_mel, f0=f0)
-                    aux_wav_len = aux_wav.shape[-1]
-                    self.validation_results['aux_wavs'][val_idx, :aux_wav_len] = aux_wav
-                    self.validation_results['aux_wav_lens'][val_idx] = aux_wav_len
-                pred_mel = mel_out.diff_out[idx, :mel_len].unsqueeze(0)
-                pred_wav = self.vocoder.spec2wav_torch(pred_mel, f0=f0)
-                pred_wav_len = pred_wav.shape[-1]
-                self.validation_results['pred_wavs'][val_idx, :pred_wav_len] = pred_wav
-                self.validation_results['pred_wav_lens'][val_idx] = pred_wav_len
+                    self.logger.all_rank_experiment.add_audio(
+                        f'aux_{data_idx}', aux_wav,
+                        sample_rate=hparams['audio_sample_rate'],
+                        global_step=self.global_step
+                    )
+                if diff_mels is not None:
+                    pred_mel = diff_mels[idx, :mel_len].unsqueeze(0)
+                    pred_wav = self.vocoder.spec2wav_torch(pred_mel, f0=f0)
+                    self.logger.all_rank_experiment.add_audio(
+                        f'diff_{data_idx}', pred_wav,
+                        sample_rate=hparams['audio_sample_rate'],
+                        global_step=self.global_step
+                    )
 
-    def plot_mel(self, sample, mel_out, data_idx_base, batch_idx):
+    def plot_mel(self, data_idx_base, gt_specs, out_specs, spec_lengths, name_prefix='mel'):
         vmin = hparams['mel_vmin']
         vmax = hparams['mel_vmax']
         num_valid_plots = min(hparams['num_valid_plots'], len(self.valid_dataset))
-        if self.use_shallow_diffusion:
-            aux_spec_cat = torch.cat([(mel_out.aux_out - sample['mel']).abs() + vmin, sample['mel'], mel_out.aux_out], -1)
-        pred_spec_cat = torch.cat([(mel_out.diff_out - sample['mel']).abs() + vmin, sample['mel'], mel_out.diff_out], -1)
-        for idx in range(sample['size']):
+        spec_cat = torch.cat([(out_specs - gt_specs).abs() + vmin, gt_specs, out_specs], -1)
+        for idx in range(len(spec_lengths)):
             data_idx = data_idx_base + idx * self.num_replicas
             if data_idx < num_valid_plots:
-                val_idx = idx + batch_idx * self.val_batch_size
-                mel_len = sample['mel_lengths'][idx]
+                mel_len = spec_lengths[idx]
                 title_text = f"{self.valid_dataset.metadata['spk'][data_idx]} - {self.valid_dataset.metadata['name'][data_idx]}"
-                if self.use_shallow_diffusion:
-                    self.validation_results['aux_mel_imgs'][val_idx] = torch.tensor(
-                        figure_to_image(spec_to_figure(aux_spec_cat[idx, :mel_len, :], vmin, vmax, f"{title_text} (Aux MEL)"))
-                    )
-                self.validation_results['pred_mel_imgs'][val_idx] = torch.tensor(
-                    figure_to_image(spec_to_figure(pred_spec_cat[idx, :mel_len, :], vmin, vmax, f"{title_text} (Diffusion MEL)"))
-                )
+                self.logger.all_rank_experiment.add_figure(f'{name_prefix}_{data_idx}',  spec_to_figure(
+                    spec_cat[idx, :mel_len],vmin, vmax, title_text
+                ), global_step=self.global_step)

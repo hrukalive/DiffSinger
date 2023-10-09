@@ -17,7 +17,6 @@ matplotlib.use('Agg')
 import torch.utils.data
 from torchmetrics import Metric, MeanMetric
 import lightning.pytorch as pl
-from lightning.pytorch.loggers import TensorBoardLogger
 from lightning.pytorch.utilities.rank_zero import rank_zero_debug, rank_zero_info, rank_zero_only
 
 from basics.base_module import CategorizedModule
@@ -25,6 +24,7 @@ from utils.hparams import hparams
 from utils.training_utils import (
     DsModelCheckpoint, DsTQDMProgressBar,
     DsBatchSampler, DsEvalBatchSampler,
+    DsTensorBoardLogger,
     get_latest_checkpoint_path, get_strategy
 )
 from utils.phoneme_utils import locate_dictionary, build_phoneme_list
@@ -253,6 +253,7 @@ class BaseTask(pl.LightningModule):
             rank_zero_debug(f"Skip validation")
             return
         self._on_validation_start()
+        self.trainer.strategy.barrier()
         for metric in self.valid_losses.values():
             metric.to(self.device)
             metric.reset()
@@ -302,6 +303,7 @@ class BaseTask(pl.LightningModule):
             metric.reset()
         for metric_name in self.valid_metric_names:
             getattr(self, metric_name).reset()
+        self.trainer.strategy.barrier()
         self.log('val_loss', loss_vals['total_loss'], on_epoch=True, prog_bar=True, logger=False, sync_dist=True)
         self.logger.log_metrics({f'validation/{k}': v for k, v in loss_vals.items()}, step=self.global_step)
         self.logger.log_metrics({f'metrics/{k}': v for k, v in metric_vals.items()}, step=self.global_step)
@@ -441,7 +443,7 @@ class BaseTask(pl.LightningModule):
                 # LearningRateMonitor(logging_interval='step'),
                 DsTQDMProgressBar(),
             ],
-            logger=TensorBoardLogger(
+            logger=DsTensorBoardLogger(
                 save_dir=str(work_dir),
                 name='lightning_logs',
                 version='latest'
