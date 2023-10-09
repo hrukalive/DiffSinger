@@ -17,7 +17,7 @@ from modules.metrics.curve import RawCurveAccuracy
 from modules.metrics.duration import PhonemeDurationAccuracy, RhythmCorrectness
 from modules.toplevel import DiffSingerVariance
 from utils.hparams import hparams
-from utils.plot import get_bitmap_size, figure_to_image, pitch_note_to_figure, curve_to_figure, dur_to_figure
+from utils.plot import pitch_note_to_figure, curve_to_figure, dur_to_figure
 
 matplotlib.use('Agg')
 
@@ -225,155 +225,95 @@ class VarianceTask(BaseTask):
             return losses
 
 
-    def _on_validation_start(self):
-        num_valid_plots = min(hparams['num_valid_plots'], len(self.valid_dataset))
-        valid_per_replica = ceil(num_valid_plots / self.num_replicas)
-        img_shape = get_bitmap_size('spec')
-        self.validation_results = {
-            'idxs': -torch.ones(valid_per_replica, dtype=torch.long),
-        }
-        if self.model.predict_dur:
-            dur_img_shape = get_bitmap_size('dur', max(self.valid_dataset.metadata['tokens'][:num_valid_plots]))
-            self.validation_results['dur_imgs'] = torch.zeros((valid_per_replica, *dur_img_shape), dtype=torch.uint8)
-            self.validation_results['dur_sizes'] = torch.zeros((valid_per_replica, 3), dtype=torch.long)
-        if self.model.predict_pitch:
-            pitch_img_shape = get_bitmap_size('curve', max(self.valid_dataset.metadata['pitch'][:num_valid_plots]))
-            self.validation_results['pitch_imgs'] = torch.zeros((valid_per_replica, *pitch_img_shape), dtype=torch.uint8)
-            self.validation_results['pitch_sizes'] = torch.zeros((valid_per_replica, 3), dtype=torch.long)
-        for name in self.variance_prediction_list:
-            img_shape = get_bitmap_size('curve', max(self.valid_dataset.metadata[name][:num_valid_plots]))
-            self.validation_results[f'{name}_imgs'] = torch.zeros((valid_per_replica, *img_shape), dtype=torch.uint8)
-            self.validation_results[f'{name}_sizes'] = torch.zeros((valid_per_replica, 3), dtype=torch.long)
-        self.trainer.strategy.barrier()
-
-
     def _validation_step(self, sample, batch_idx):
         data_idx_base = batch_idx * (self.num_replicas * self.val_batch_size) + self.global_rank
         losses = self.run_model(sample, infer=False)
         num_valid_plots = min(hparams['num_valid_plots'], len(self.valid_dataset))
-        dur_preds, pitch_preds, variances_preds = self.run_model(sample, infer=True)
-        if self.model.predict_dur:
-            tokens = sample['tokens']
-            dur_gt = sample['ph_dur']
-            ph2word = sample['ph2word']
-            mask = tokens != 0
-            self.rhythm_corr.update(
-                pdur_pred=dur_preds, pdur_target=dur_gt, ph2word=ph2word, mask=mask
-            )
-            self.ph_dur_acc.update(
-                pdur_pred=dur_preds, pdur_target=dur_gt, ph2word=ph2word, mask=mask
-            )
-        if self.model.predict_pitch:
-            pred_pitch = sample['base_pitch'] + pitch_preds
-            gt_pitch = sample['pitch']
-            mask = (sample['mel2ph'] > 0) & ~sample['uv']
-            self.pitch_acc.update(pred=pred_pitch, target=gt_pitch, mask=mask)
         if data_idx_base < num_valid_plots and self.trainer.state.stage is RunningStage.VALIDATING:
-            for idx in range(sample['size']):
-                data_idx = data_idx_base + idx * self.num_replicas
-                if data_idx < num_valid_plots:
-                    val_idx = idx + batch_idx * self.val_batch_size
-                    self.validation_results['idxs'][val_idx] = data_idx
-
-                    if self.model.predict_dur:
-                        dur_pred = dur_preds[idx][:sample['ph_dur_lengths'][idx]]
-                        tokens = sample['tokens'][idx][:sample['tokens_lengths'][idx]]
-                        dur_gt = sample['ph_dur'][idx][:sample['ph_dur_lengths'][idx]]
-                        ph2word = sample['ph2word'][idx][:sample['ph2word_lengths'][idx]]
-                        mask = tokens != 0
-                        self.plot_dur(data_idx, val_idx, dur_gt, dur_pred, txt=tokens)
-                    if self.model.predict_pitch:
-                        base_pitch = sample['base_pitch'][idx][:sample['base_pitch_lengths'][idx]]
-                        pred_pitch = base_pitch + pitch_preds[idx][:sample['pitch_lengths'][idx]]
-                        gt_pitch = sample['pitch'][idx][:sample['pitch_lengths'][idx]]
-                        mask = (sample['mel2ph'][idx][:sample['mel2ph_lengths'][idx]] > 0) & ~sample['uv'][idx][:sample['uv_lengths'][idx]]
-                        self.plot_curve(
-                            data_idx, val_idx,
-                            gt_curve=gt_pitch,
-                            pred_curve=pred_pitch,
-                            base_curve=base_pitch,
-                            curve_name='pitch',
-                            grid=1
-                        )
-                    for name in self.variance_prediction_list:
-                        variance = sample[name][idx][:sample[f'{name}_lengths'][idx]]
-                        variance_pred = variances_preds[name][idx][:sample[f'{name}_lengths'][idx]]
-                        self.plot_curve(
-                            data_idx, val_idx,
-                            gt_curve=variance,
-                            pred_curve=variance_pred,
-                            curve_name=name
-                        )
+            dur_preds, pitch_preds, variances_preds = self.run_model(sample, infer=True)
+            ceil_idx = ceil((num_valid_plots - data_idx_base) / self.num_replicas)
+            if dur_preds is not None:
+                tokens = sample['tokens'][:ceil_idx]
+                pred_durs = dur_preds[:ceil_idx]
+                gt_durs = sample['ph_dur'][:ceil_idx]
+                ph2words = sample['ph2word'][:ceil_idx]
+                masks = tokens != 0
+                self.rhythm_corr.update(pdur_pred=pred_durs, pdur_target=gt_durs, ph2word=ph2words, mask=masks)
+                self.ph_dur_acc.update(pdur_pred=pred_durs, pdur_target=gt_durs, ph2word=ph2words, mask=masks)
+                self.plot_dur(
+                    data_idx_base, gt_durs, pred_durs, sample['ph_dur_lengths'][:ceil_idx],
+                    tokens, sample['tokens_lengths'][:ceil_idx]
+                )
+            if pitch_preds is not None:
+                pred_pitches = sample['base_pitch'][:ceil_idx] + pitch_preds[:ceil_idx]
+                gt_pitches = sample['pitch'][:ceil_idx]
+                masks = (sample['mel2ph'][:ceil_idx] > 0) & ~sample['uv'][:ceil_idx]
+                self.pitch_acc.update(pred=pred_pitches, target=gt_pitches, mask=masks)
+                self.plot_pitch(
+                    data_idx_base, gt_pitches, pred_pitches, sample['pitch_lengths'][:ceil_idx],
+                    sample['note_midi'][:ceil_idx], sample['note_dur'][:ceil_idx], sample['note_rest'][:ceil_idx],
+                    sample['note_midi_lengths'][:ceil_idx], sample['note_dur_lengths'][:ceil_idx],
+                    sample['note_rest_lengths'][:ceil_idx]
+                )
+            for name in self.variance_prediction_list:
+                gt_variances = sample[name][:ceil_idx]
+                pred_variances = variances_preds[name][:ceil_idx]
+                self.plot_curve(
+                    data_idx_base,
+                    gt_curve=gt_variances,
+                    pred_curve=pred_variances,
+                    base_curves=None,
+                    curve_lengths=sample[f'{name}_lengths'][:ceil_idx],
+                    curve_name=name
+                )
         return losses, sample['size']
 
-
-    def _on_validation_epoch_end(self):
-        if self.trainer.state.stage is RunningStage.VALIDATING:
-            gathered = self.all_gather(self.validation_results)
-            if self.trainer.is_global_zero:
-                # Need to flatten when using multiple devices
-                if self.num_replicas > 1:
-                    gathered = {
-                        k: v.transpose(0, 1).flatten(0, 1)
-                        for k, v in gathered.items()
-                    }
-                # Iterate and upload to Tensorboard
-                for i in range(len(gathered['idxs'])):
-                    idx = gathered['idxs'][i]
-                    if idx < 0:
-                        continue
-                    if self.model.predict_dur:
-                        img_shape = tuple(map(lambda x: slice(0, x), self.validation_results['dur_sizes'][i]))
-                        img = self.validation_results['dur_imgs'][i][img_shape]
-                        self.logger.experiment.add_image(
-                            f'dur_{idx}',
-                            img,
-                            self.global_step
-                        )
-                    if self.model.predict_pitch:
-                        img_shape = tuple(map(lambda x: slice(0, x), self.validation_results['pitch_sizes'][i]))
-                        img = self.validation_results['pitch_imgs'][i][img_shape]
-                        self.logger.experiment.add_image(
-                            f'pitch_{idx}',
-                            img,
-                            self.global_step
-                        )
-                    for name in self.variance_prediction_list:
-                        img_shape = tuple(map(lambda x: slice(0, x), self.validation_results[f'{name}_sizes'][i]))
-                        img = self.validation_results[f'{name}_imgs'][i][img_shape]
-                        self.logger.experiment.add_image(
-                            f'{name}_{idx}',
-                            img,
-                            self.global_step
-                        )
-            self.trainer.strategy.barrier()
 
     ############
     # validation plots
     ############
-    def plot_dur(self, data_idx, val_idx, gt_dur, pred_dur, txt=None):
-        txt = self.phone_encoder.decode(txt.cpu().numpy()).split()
-        title_text = f"{self.valid_dataset.metadata['spk'][data_idx]} - {self.valid_dataset.metadata['name'][data_idx]}"
-        img = figure_to_image(dur_to_figure(gt_dur, pred_dur, txt, title_text))
-        img_shape = tuple(map(lambda x: slice(0, x), img.shape))
-        self.validation_results['dur_imgs'][val_idx][img_shape] = torch.tensor(img)
-        self.validation_results['dur_sizes'][val_idx] = torch.LongTensor(img.shape)
+    def plot_dur(self, data_idx_base, gt_durs, pred_durs, dur_lenghts, txts, txt_lengths):
+        num_valid_plots = min(hparams['num_valid_plots'], len(self.valid_dataset))
+        for idx in range(len(txts)):
+            data_idx = data_idx_base + idx * self.num_replicas
+            if data_idx < num_valid_plots:
+                title_text = f"{self.valid_dataset.metadata['spk'][data_idx]} - {self.valid_dataset.metadata['name'][data_idx]}"
+                gt_dur = gt_durs[idx][:dur_lenghts[idx]]
+                pred_dur = pred_durs[idx][:dur_lenghts[idx]]
+                txt = self.phone_encoder.decode(txts[idx][:txt_lengths[idx]]).split()
+                self.logger.all_rank_experiment.add_figure(f'dur_{data_idx}', dur_to_figure(
+                    gt_dur, pred_dur, txt, title_text
+                ), self.global_step)
 
-    def plot_pitch(self, batch_idx, gt_pitch, pred_pitch, note_midi, note_dur, note_rest):
-        name = f'pitch_{batch_idx}'
-        gt_pitch = gt_pitch[0].cpu().numpy()
-        pred_pitch = pred_pitch[0].cpu().numpy()
-        note_midi = note_midi[0].cpu().numpy()
-        note_dur = note_dur[0].cpu().numpy()
-        note_rest = note_rest[0].cpu().numpy()
-        self.logger.experiment.add_figure(name, pitch_note_to_figure(
-            gt_pitch, pred_pitch, note_midi, note_dur, note_rest
-        ), self.global_step)
+    def plot_pitch(self, data_idx_base,
+        gt_pitches, pred_pitches, pitch_lenghts,
+        note_midis, note_durs, note_rests,
+        note_midi_lengths, note_dur_lengths, note_rest_lengths,
+    ):
+        num_valid_plots = min(hparams['num_valid_plots'], len(self.valid_dataset))
+        for idx in range(len(pitch_lenghts)):
+            data_idx = data_idx_base + idx * self.num_replicas
+            if data_idx < num_valid_plots:
+                title_text = f"{self.valid_dataset.metadata['spk'][data_idx]} - {self.valid_dataset.metadata['name'][data_idx]}"
+                gt_pitch = gt_pitches[idx][:pitch_lenghts[idx]]
+                pred_pitch = pred_pitches[idx][:pitch_lenghts[idx]]
+                note_midi = note_midis[idx][:note_midi_lengths[idx]]
+                note_dur = note_durs[idx][:note_dur_lengths[idx]]
+                note_rest = note_rests[idx][:note_rest_lengths[idx]]
+                self.logger.all_rank_experiment.add_figure(f'pitch_{data_idx}', pitch_note_to_figure(
+                    gt_pitch, pred_pitch, note_midi, note_dur, note_rest, title_text
+                ), self.global_step)
 
-    def plot_curve(self, data_idx, val_idx, gt_curve, pred_curve, base_curve=None, grid=None, curve_name='curve'):
-        assert curve_name is not None
-        title_text = f"{self.valid_dataset.metadata['spk'][data_idx]} - {self.valid_dataset.metadata['name'][data_idx]}"
-        img = figure_to_image(curve_to_figure(gt_curve, pred_curve, base_curve, grid=grid, title=title_text))
-        img_shape = tuple(map(lambda x: slice(0, x), img.shape))
-        self.validation_results[f'{curve_name}_imgs'][val_idx][img_shape] = torch.tensor(img)
-        self.validation_results[f'{curve_name}_sizes'][val_idx] = torch.LongTensor(img.shape)
+    def plot_curve(self, data_idx_base, gt_curves, pred_curves, base_curves, curve_lengths, grid=None, curve_name='curve'):
+        num_valid_plots = min(hparams['num_valid_plots'], len(self.valid_dataset))
+        for idx in range(len(curve_lengths)):
+            data_idx = data_idx_base + idx * self.num_replicas
+            if data_idx < num_valid_plots:
+                title_text = f"{self.valid_dataset.metadata['spk'][data_idx]} - {self.valid_dataset.metadata['name'][data_idx]}"
+                gt_curve = gt_curves[idx][:curve_lengths[idx]]
+                pred_curve = pred_curves[idx][:curve_lengths[idx]]
+                if base_curves is not None:
+                    base_curve = base_curves[idx][:curve_lengths[idx]]
+                self.logger.all_rank_experiment.add_figure(f'{curve_name}_{data_idx}', curve_to_figure(
+                    gt_curve, pred_curve, base_curve, grid=grid, title=title_text
+                ), self.global_step)
