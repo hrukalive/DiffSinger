@@ -28,7 +28,7 @@ class TokenTextEncoder:
         """
         self.num_reserved_ids = hparams.get('num_pad_tokens', 3)
         assert self.num_reserved_ids > 0, 'num_pad_tokens must be positive'
-        self.vocab_list = sorted(vocab_list)
+        self.vocab_list = vocab_list
 
     def encode(self, sentence):
         """Converts a space-separated string of phones to a list of ids."""
