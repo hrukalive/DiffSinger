@@ -58,8 +58,10 @@ class BaseTask(pl.LightningModule):
             postprocess the validation output.
     """
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, data_dir, is_test):
+        super().__init__()
+        self.data_dir = data_dir
+        self.is_test = is_test
         self.max_batch_frames = hparams['max_batch_frames']
         self.max_batch_size = hparams['max_batch_size']
         self.max_val_batch_frames = hparams['max_val_batch_frames']
@@ -87,8 +89,11 @@ class BaseTask(pl.LightningModule):
     # Training, validation and testing
     ###########
     def setup(self, stage):
-        self.train_dataset = self.dataset_cls(hparams['train_set_name'])
-        self.valid_dataset = self.dataset_cls(hparams['valid_set_name'])
+        if not self.is_test:
+            self.train_dataset = self.train_dataset_cls(self.data_dir, hparams['train_set_name'])
+            self.valid_dataset = self.valid_dataset_cls(self.data_dir, hparams['valid_set_name'])
+        else:
+            self.test_dataset = self.test_dataset_cls(self.data_dir, 0)
         self.num_replicas = (self.trainer.distributed_sampler_kwargs or {}).get('num_replicas', 1)
 
     def get_need_freeze_state_dict_key(self, model_state_dict) -> list:
@@ -379,16 +384,36 @@ class BaseTask(pl.LightningModule):
         )
 
     def test_dataloader(self):
-        return self.val_dataloader()
+        sampler = DsBatchSampler(
+            self.test_dataset,
+            max_batch_frames=self.max_val_batch_frames,
+            max_batch_size=self.max_val_batch_size,
+            num_replicas=self.num_replicas,
+            rank=self.global_rank,
+            batch_by_size=False,
+            sort_by_similar_size=False,
+            shuffle_sample=False,
+            shuffle_batch=False,
+            disallow_empty_batch=False,
+            pad_batch_assignment=False
+        )
+        return torch.utils.data.DataLoader(
+            self.test_dataset,
+            collate_fn=self.test_dataset.collater,
+            batch_sampler=sampler,
+            num_workers=hparams['ds_workers'],
+            prefetch_factor=hparams['dataloader_prefetch_factor'],
+            persistent_workers=True
+        )
 
     def on_test_start(self):
-        self.on_validation_start()
+        pass
 
     def test_step(self, sample, batch_idx):
-        return self.validation_step(sample, batch_idx)
+        pass
 
     def on_test_end(self):
-        return self.on_validation_end()
+        pass
 
     ###########
     # Running configuration
@@ -397,7 +422,10 @@ class BaseTask(pl.LightningModule):
     @classmethod
     def start(cls):
         pl.seed_everything(hparams['seed'], workers=True)
-        task = cls()
+        task = cls(
+            hparams['binary_data_dir'] if not hparams['infer'] else ['???'],
+            hparams['infer']
+        )
 
         # if pre_train is not None:
         #     task.load_state_dict(pre_train,strict=False)

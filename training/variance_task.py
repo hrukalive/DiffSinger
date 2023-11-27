@@ -20,8 +20,13 @@ matplotlib.use('Agg')
 
 
 class VarianceDataset(BaseDataset):
-    def __init__(self, prefix, preload=False):
-        super(VarianceDataset, self).__init__(prefix, hparams['dataset_size_key'], preload)
+    def __init__(self, data_dir, prefix, preload=False):
+        super(VarianceDataset, self).__init__(
+            data_dir,
+            prefix,
+            hparams['dataset_size_key'],
+            preload
+        )
         need_energy = hparams['predict_energy']
         need_breathiness = hparams['predict_breathiness']
         self.predict_variances = need_energy or need_breathiness
@@ -73,9 +78,11 @@ def random_retake_masks(b, t, device):
 
 
 class VarianceTask(BaseTask):
-    def __init__(self):
-        super().__init__()
-        self.dataset_cls = VarianceDataset
+    def __init__(self, data_dir=hparams['binary_data_dir'], is_test=False):
+        super().__init__(data_dir, is_test)
+        self.train_dataset_cls = VarianceDataset
+        self.valid_dataset_cls = VarianceDataset
+        self.test_dataset_cls = VarianceDataset
 
         self.use_spk_id = hparams['use_spk_id']
 

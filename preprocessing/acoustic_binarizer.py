@@ -47,8 +47,14 @@ breathiness_smooth: SinusoidalSmoothingConv1d = None
 
 
 class AcousticBinarizer(BaseBinarizer):
-    def __init__(self):
-        super().__init__(data_attrs=ACOUSTIC_ITEM_ATTRIBUTES)
+    def __init__(
+        self,
+        data_dir=hparams['binary_data_dir'],
+        spk_ids=hparams['spk_ids'],
+        speakers=hparams['speakers'],
+        device=('cuda' if torch.cuda.is_available() else 'cpu')
+    ):
+        super().__init__(data_dir, spk_ids, speakers, ACOUSTIC_ITEM_ATTRIBUTES, device)
         self.lr = LengthRegulator()
         self.need_energy = hparams.get('use_energy_embed', False)
         self.need_breathiness = hparams.get('use_breathiness_embed', False)
@@ -81,9 +87,9 @@ class AcousticBinarizer(BaseBinarizer):
     @torch.no_grad()
     def process_item(self, item_name, meta_data, binarization_args):
         if hparams['vocoder'] in VOCODERS:
-            wav, mel = VOCODERS[hparams['vocoder']].wav2spec(meta_data['wav_fn'])
+            wav, mel = VOCODERS[hparams['vocoder']].wav2spec(meta_data['wav_fn'], device=self.device)
         else:
-            wav, mel = VOCODERS[hparams['vocoder'].split('.')[-1]].wav2spec(meta_data['wav_fn'])
+            wav, mel = VOCODERS[hparams['vocoder'].split('.')[-1]].wav2spec(meta_data['wav_fn'], device=self.device)
         length = mel.shape[0]
         seconds = length * hparams['hop_size'] / hparams['audio_sample_rate']
         processed_input = {

@@ -54,8 +54,14 @@ breathiness_smooth: SinusoidalSmoothingConv1d = None
 
 
 class VarianceBinarizer(BaseBinarizer):
-    def __init__(self):
-        super().__init__(data_attrs=VARIANCE_ITEM_ATTRIBUTES)
+    def __init__(
+        self,
+        data_dir=hparams['binary_data_dir'],
+        spk_ids=hparams['spk_ids'],
+        speakers=hparams['speakers'],
+        device=('cuda' if torch.cuda.is_available() else 'cpu')
+    ):
+        super().__init__(data_dir, spk_ids, speakers, VARIANCE_ITEM_ATTRIBUTES, device)
 
         self.use_glide_embed = hparams['use_glide_embed']
         glide_types = hparams['glide_types']

@@ -3,6 +3,8 @@ import torch
 import torch.distributions
 import torch.optim
 import torch.utils.data
+import pathlib
+import numpy as np
 
 import utils
 import utils.infer_utils
@@ -13,6 +15,7 @@ from modules.aux_decoder import build_aux_loss
 from modules.losses.diff_loss import DiffusionNoiseLoss
 from modules.toplevel import DiffSingerAcoustic, ShallowDiffusionOutput
 from modules.vocoders.registry import get_vocoder_cls
+from preprocessing.acoustic_binarizer import AcousticBinarizer
 from utils.hparams import hparams
 from utils.plot import spec_to_figure
 
@@ -20,8 +23,13 @@ matplotlib.use('Agg')
 
 
 class AcousticDataset(BaseDataset):
-    def __init__(self, prefix, preload=False):
-        super(AcousticDataset, self).__init__(prefix, hparams['dataset_size_key'], preload)
+    def __init__(self, data_dir, prefix, preload=False):
+        super(AcousticDataset, self).__init__(
+            data_dir,
+            prefix,
+            hparams['dataset_size_key'],
+            preload
+        )
         self.required_variances = {}  # key: variance name, value: padding value
         if hparams.get('use_energy_embed', False):
             self.required_variances['energy'] = 0.0
@@ -58,18 +66,52 @@ class AcousticDataset(BaseDataset):
             batch['spk_ids'] = spk_ids
         return batch
 
+class AcousticTestDataset(AcousticDataset):
+    def __init__(self, raw_data_dirs, spk_id):
+        self.required_variances = {}  # key: variance name, value: padding value
+        if hparams.get('use_energy_embed', False):
+            self.required_variances['energy'] = 0.0
+        if hparams.get('use_breathiness_embed', False):
+            self.required_variances['breathiness'] = 0.0
+
+        self.need_key_shift = hparams.get('use_key_shift_embed', False)
+        self.need_speed = hparams.get('use_speed_embed', False)
+        self.need_spk_id = hparams['use_spk_id']
+        self.raw_data_dirs = raw_data_dirs
+
+        self.binarizer = AcousticBinarizer(raw_data_dirs, [spk_id] * len(raw_data_dirs), ['0'] * len(raw_data_dirs), 'cpu')
+        for ds_id, data_dir in zip(range(len(raw_data_dirs)), self.binarizer.raw_data_dirs):
+            self.binarizer.load_meta_data(pathlib.Path(data_dir), ds_id=ds_id, spk_id=spk_id)
+        self.binarizer.item_names = sorted(list(self.binarizer.items.keys()))
+
+    def __getitem__(self, index):
+        _item = self.binarizer.process_item(self.binarizer.item_names[index], self.binarizer.items[self.binarizer.item_names[index]], {})
+        _item = {k: torch.from_numpy(v) if isinstance(v, np.ndarray) else v for k, v in _item.items() if k in self.binarizer.data_attrs}
+        return {'_idx': index, **_item, 'f0_len': _item['f0'].shape[0], 'mel_len': _item['mel'].shape[0], 'name': self.binarizer.item_names[index]}
+
+    def __len__(self):
+        return len(self.binarizer.item_names)
+
+    def collater(self, samples):
+        batch = super().collater(samples)
+        batch['f0_lens'] = torch.LongTensor([s['f0_len'] for s in samples])
+        batch['mel_lens'] = torch.LongTensor([s['mel_len'] for s in samples])
+        batch['names'] = [s['name'] for s in samples]
+        return batch
 
 class AcousticTask(BaseTask):
-    def __init__(self):
-        super().__init__()
-        self.dataset_cls = AcousticDataset
+    def __init__(self, data_dir=hparams['binary_data_dir'], is_test=False):
+        super().__init__(data_dir, is_test)
+        self.train_dataset_cls = AcousticDataset
+        self.valid_dataset_cls = AcousticDataset
+        self.test_dataset_cls = AcousticTestDataset
         self.use_shallow_diffusion = hparams['use_shallow_diffusion']
         if self.use_shallow_diffusion:
             self.shallow_args = hparams['shallow_diffusion_args']
             self.train_aux_decoder = self.shallow_args['train_aux_decoder']
             self.train_diffusion = self.shallow_args['train_diffusion']
 
-        self.use_vocoder = hparams['infer'] or hparams['val_with_vocoder']
+        self.use_vocoder = hparams['infer'] or hparams['val_with_vocoder'] or is_test
         if self.use_vocoder:
             self.vocoder: BaseVocoder = get_vocoder_cls(hparams)()
         self.logged_gt_wav = set()
@@ -163,6 +205,22 @@ class AcousticTask(BaseTask):
                         self.plot_mel(data_idx, sample['mel'][i], mel_out.diff_out[i], 'diffmel')
         return losses, sample['size']
 
+    def on_test_start(self):
+        if self.use_vocoder and self.vocoder.get_device() != self.device:
+            self.vocoder.to_device(self.device)
+
+    def test_step(self, sample, batch_idx):
+        if sample['size'] > 0:
+            mel_out: ShallowDiffusionOutput = self.run_model(sample, infer=True)
+            for i in range(len(sample['indices'])):
+                if self.use_vocoder:
+                    f0_len = sample['f0_lens'][i]
+                    mel_len = sample['mel_lens'][i]
+                    f0 = sample['f0'][i][:f0_len].unsqueeze(0)
+                    if mel_out.diff_out is not None:
+                        diff_mel = mel_out.diff_out[i][:mel_len].unsqueeze(0)
+                    self.vocoder.spec2wav_torch(diff_mel, f0=f0)
+                    print(sample['names'][i])
 
     ############
     # validation plots

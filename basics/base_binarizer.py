@@ -44,7 +44,7 @@ class BaseBinarizer:
             the phoneme set.
     """
 
-    def __init__(self, data_dir=None, data_attrs=None):
+    def __init__(self, data_dir, spk_ids, speakers, data_attrs, device):
         if data_dir is None:
             data_dir = hparams['raw_data_dir']
         if not isinstance(data_dir, list):
@@ -56,11 +56,11 @@ class BaseBinarizer:
 
         self.binarization_args = hparams['binarization_args']
         self.augmentation_args = hparams.get('augmentation_args', {})
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device(device)
 
         self.spk_map = None
-        self.spk_ids = hparams['spk_ids']
-        self.speakers = hparams['speakers']
+        self.spk_ids = spk_ids
+        self.speakers = speakers
         self.build_spk_map()
 
         self.items = {}
