@@ -86,7 +86,11 @@ def get_breathiness_pyworld(wav_data, f0, length, hparams):
     hop_size = hparams['hop_size']
     fft_size = hparams['fft_size']
 
-    x = wav_data.astype(np.double)
+    # Add a tiny noise to the signal to avoid NaN results of D4C in rare edge cases
+    # References:
+    #   - https://github.com/JeremyCCHsu/Python-Wrapper-for-World-Vocoder/issues/50
+    #   - https://github.com/mmorise/World/issues/116
+    x = wav_data.astype(np.double) + np.random.randn(*wav_data.shape) * 1e-5
     f0 = f0.astype(np.double)
     wav_frames = (x.shape[0] + hop_size - 1) // hop_size
     f0_frames = f0.shape[0]
@@ -100,7 +104,7 @@ def get_breathiness_pyworld(wav_data, f0, length, hparams):
     sp = pw.cheaptrick(x, f0, t, sample_rate, fft_size=fft_size)  # extract smoothed spectrogram
     ap = pw.d4c(x, f0, t, sample_rate, fft_size=fft_size)  # extract aperiodicity
     y = pw.synthesize(
-        f0, sp * ap * ap, np.ones_like(ap), sample_rate,
+        f0, np.clip(sp * ap * ap, a_min=1e-16, a_max=None), np.ones_like(ap), sample_rate,
         frame_period=time_step * 1000
     ).astype(np.float32)  # synthesize the aperiodic part using the parameters
     breathiness = get_energy_librosa(y, length, hparams)

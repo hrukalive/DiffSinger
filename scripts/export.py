@@ -188,18 +188,30 @@ def variance(
 
 
 @main.command(help='Export NSF-HiFiGAN vocoder model to ONNX format.')
-@click.option('--config', type=str, required=True, metavar='<path>', help='Specify a config path of the vocoder.')
+@click.option(
+    '--config', type=str, required=True, metavar='<file>',
+    help='Specify a configuration file for the vocoder.'
+)
+@click.option(
+    '--ckpt', type=str, required=False, metavar='<file>',
+    help='Specify a model path of the vocoder checkpoint.'
+)
 @click.option('--out', type=str, required=False, metavar='<dir>', help='Output directory for the artifacts.')
 @click.option('--name', type=str, required=False, metavar='<name>', default='nsf_hifigan', show_default=False,
               help='Specify filename (without suffix) of the target model file.')
 def nsf_hifigan(
         config: str,
+        ckpt: str = None,
         out: str = None,
         name: str = None
 ):
     # Check arguments
     if not Path(config).resolve().exists():
         raise FileNotFoundError(f'{config} is not a valid config path.')
+    if ckpt is not None:
+        ckpt = Path(ckpt).resolve()
+        if not ckpt.exists():
+            raise FileNotFoundError(f'{ckpt} is not a valid model path.')
     if out is None:
         out = root_dir / 'artifacts' / 'nsf_hifigan'
     else:
@@ -208,6 +220,10 @@ def nsf_hifigan(
 
     # Load configurations
     set_hparams(config)
+    if ckpt is None:
+        model_path = Path(hparams['vocoder_ckpt']).resolve()
+    else:
+        model_path = ckpt
 
     # Export artifacts
     from deployment.exporters import NSFHiFiGANExporter
@@ -215,7 +231,7 @@ def nsf_hifigan(
     exporter = NSFHiFiGANExporter(
         device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
         cache_dir=root_dir / 'deployment' / 'cache',
-        model_path=Path(hparams['vocoder_ckpt']).resolve(),
+        model_path=model_path,
         model_name=name
     )
     try:

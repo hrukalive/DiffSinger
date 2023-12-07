@@ -97,7 +97,7 @@ Scale ratio of each target in fixed pitch shifting augmentation.
 <tr><td align="center"><b>scope</b></td><td>preprocessing</td>
 <tr><td align="center"><b>customizability</b></td><td>recommended</td>
 <tr><td align="center"><b>type</b></td><td>tuple</td>
-<tr><td align="center"><b>default</b></td><td>0.75</td>
+<tr><td align="center"><b>default</b></td><td>0.5</td>
 </tbody></table>
 
 ### augmentation_args.fixed_pitch_shifting.targets
@@ -129,7 +129,7 @@ Whether to apply random pitch shifting augmentation.
 <tr><td align="center"><b>scope</b></td><td>preprocessing</td>
 <tr><td align="center"><b>customizability</b></td><td>recommended</td>
 <tr><td align="center"><b>type</b></td><td>bool</td>
-<tr><td align="center"><b>default</b></td><td>false</td>
+<tr><td align="center"><b>default</b></td><td>true</td>
 <tr><td align="center"><b>constraints</b></td><td>Must be false if <a href="#augmentation_argsfixed_pitch_shiftingenabled">augmentation_args.fixed_pitch_shifting.enabled</a> is set to true.</td>
 </tbody></table>
 
@@ -154,7 +154,7 @@ Scale ratio of the random pitch shifting augmentation.
 <tr><td align="center"><b>scope</b></td><td>preprocessing</td>
 <tr><td align="center"><b>customizability</b></td><td>recommended</td>
 <tr><td align="center"><b>type</b></td><td>float</td>
-<tr><td align="center"><b>default</b></td><td>1.0</td>
+<tr><td align="center"><b>default</b></td><td>0.75</td>
 </tbody></table>
 
 ### augmentation_args.random_time_stretching
@@ -190,7 +190,7 @@ Whether to apply random time stretching augmentation.
 <tr><td align="center"><b>scope</b></td><td>preprocessing</td>
 <tr><td align="center"><b>customizability</b></td><td>recommended</td>
 <tr><td align="center"><b>type</b></td><td>bool</td>
-<tr><td align="center"><b>default</b></td><td>false</td>
+<tr><td align="center"><b>default</b></td><td>true</td>
 </tbody></table>
 
 ### augmentation_args.random_time_stretching.range
@@ -214,7 +214,7 @@ Scale ratio of random time stretching augmentation.
 <tr><td align="center"><b>scope</b></td><td>preprocessing</td>
 <tr><td align="center"><b>customizability</b></td><td>recommended</td>
 <tr><td align="center"><b>type</b></td><td>float</td>
-<tr><td align="center"><b>default</b></td><td>1.0</td>
+<tr><td align="center"><b>default</b></td><td>0.75</td>
 </tbody></table>
 
 ### base_config
@@ -673,7 +673,7 @@ Maximum base frequency (F0) in Hz for pitch extraction.
 <tr><td align="center"><b>scope</b></td><td>preprocessing</td>
 <tr><td align="center"><b>customizability</b></td><td>normal</td>
 <tr><td align="center"><b>type</b></td><td>int</td>
-<tr><td align="center"><b>default</b></td><td>800</td>
+<tr><td align="center"><b>default</b></td><td>1100</td>
 </tbody></table>
 
 ### f0_min
@@ -1385,8 +1385,8 @@ The computation precision of training.
 <tr><td align="center"><b>scope</b></td><td>training</td>
 <tr><td align="center"><b>customizability</b></td><td>normal</td>
 <tr><td align="center"><b>type</b></td><td>str</td>
-<tr><td align="center"><b>default</b></td><td>32-true</td>
-<tr><td align="center"><b>constraints</b></td><td>Choose from '32-true', 'bf16-mixed', '16-mixed', 'bf16', '16'. See more possible values at <a href="https://lightning.ai/docs/pytorch/stable/common/trainer.html#trainer-class-api">Trainer — PyTorch Lightning 2.X.X documentation</a>.</td>
+<tr><td align="center"><b>default</b></td><td>16-mixed</td>
+<tr><td align="center"><b>constraints</b></td><td>Choose from '32-true', 'bf16-mixed', '16-mixed'. See more possible values at <a href="https://lightning.ai/docs/pytorch/stable/common/trainer.html#trainer-class-api">Trainer — PyTorch Lightning 2.X.X documentation</a>.</td>
 </tbody></table>
 
 ### pl_trainer_num_nodes
