@@ -150,6 +150,9 @@ def filter_kwargs(dict_to_filter, kwarg_obj):
     import inspect
 
     sig = inspect.signature(kwarg_obj)
+    if any(param.kind == param.VAR_KEYWORD for param in sig.parameters.values()):
+        # the signature contains definitions like **kwargs, so there is no need to filter
+        return dict_to_filter.copy()
     filter_keys = [
         param.name
         for param in sig.parameters.values()
