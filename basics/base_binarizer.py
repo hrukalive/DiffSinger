@@ -63,6 +63,8 @@ class BaseBinarizer:
         self.speakers = hparams['speakers']
         self.build_spk_map()
 
+        self.build_ph_map()
+
         self.items = {}
         self.item_names: list = None
         self._train_item_names: list = None
@@ -92,7 +94,30 @@ class BaseBinarizer:
 
         print("| spk_map: ", self.spk_map)
 
-    def load_meta_data(self, raw_data_dir: pathlib.Path, ds_id, spk_id):
+    def build_ph_map(self):
+        self.ph_maps = hparams.get('ph_maps', []) or []
+        assert isinstance(self.ph_maps, list), 'Phoneme maps must be a list'
+        assert len(self.ph_maps) == len(self.raw_data_dirs), \
+            'Number of raw data dirs must equal number of phoneme maps!'
+        if len(self.ph_maps) == 0:
+            self.ph_maps = ['' for _ in self.raw_data_dirs]
+        contents = []
+        for path in self.ph_maps:
+            if path.strip():
+                if not pathlib.Path(path).exists():
+                    raise ValueError(f'Phoneme map file \'{path}\' does not exist.')
+                with open(path, 'r') as f:
+                    tmp = {}
+                    for line in f:
+                        original_phs, ret_ph = line.strip().split()
+                        for original_ph in original_phs.split(','):
+                            tmp[original_ph.strip()] = ret_ph.strip()
+                    contents.append(tmp)
+            else:
+                contents.append({})
+        self.ph_maps = contents
+
+    def load_meta_data(self, raw_data_dir: pathlib.Path, ph_map, ds_id, spk_id):
         raise NotImplementedError()
 
     def split_train_valid_set(self, item_names):
@@ -167,8 +192,8 @@ class BaseBinarizer:
 
     def process(self):
         # load each dataset
-        for ds_id, spk_id, data_dir in zip(range(len(self.raw_data_dirs)), self.spk_ids, self.raw_data_dirs):
-            self.load_meta_data(pathlib.Path(data_dir), ds_id=ds_id, spk_id=spk_id)
+        for ds_id, spk_id, data_dir, ph_map in zip(range(len(self.raw_data_dirs)), self.spk_ids, self.raw_data_dirs, self.ph_maps):
+            self.load_meta_data(pathlib.Path(data_dir), ph_map, ds_id=ds_id, spk_id=spk_id)
         self.item_names = sorted(list(self.items.keys()))
         self._train_item_names, self._valid_item_names = self.split_train_valid_set(self.item_names)
 

@@ -16,7 +16,7 @@ class TokenTextEncoder:
         Args:
             vocab_list: If not None, a list of elements of the vocabulary.
         """
-        self.vocab_list = sorted(vocab_list)
+        self.vocab_list = vocab_list
 
     def encode(self, sentence):
         """Converts a space-separated string of phones to a list of ids."""

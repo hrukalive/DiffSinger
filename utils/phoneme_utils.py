@@ -55,6 +55,15 @@ def _build_dict_and_list():
     for _list in _dictionary.values():
         [_set.add(ph) for ph in _list]
     _phoneme_list = sorted(list(_set))
+    if 'phoneme_list' in hparams:
+        with open(hparams['phoneme_list'], 'r') as f:
+            custom_set = f.read().strip().split('\n')
+            if _set == set(custom_set):
+                _phoneme_list = custom_set
+            else:
+                print(_set - set(custom_set))
+                print(set(custom_set) - _set)
+                raise Exception("GIVEN PHONEME LIST DOES NOT MATCH THE DICTIONARY")
     rank_zero_info('| load phoneme set: ' + str(_phoneme_list))
 
 
@@ -62,7 +71,7 @@ def _initialize_consonants_and_vowels():
     # Currently we only support two-part consonant-vowel phoneme systems.
     for _ph_list in _dictionary.values():
         _ph_count = len(_ph_list)
-        if _ph_count == 0 or _ph_list[0] in ['AP', 'SP']:
+        if _ph_count == 0 or _ph_list[0] in ['AP', 'SP', 'EXH']:
             continue
         elif len(_ph_list) == 1:
             _ALL_VOWELS_SET.add(_ph_list[0])
