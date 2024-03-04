@@ -107,6 +107,7 @@ def main():
     '--mel', is_flag=True,
     help='Save intermediate mel format instead of waveform'
 )
+@click.option('--ph_map', type=str, default="")
 def acoustic(
         proj: pathlib.Path,
         exp: str,
@@ -120,7 +121,8 @@ def acoustic(
         seed: int,
         depth: float,
         steps: int,
-        mel: bool
+        mel: bool,
+        ph_map: str
 ):
     name = proj.stem if not title else title
     if out is None:
@@ -131,6 +133,17 @@ def acoustic(
 
     if not isinstance(params, list):
         params = [params]
+
+    if ph_map != "":
+        m = {}
+        with open(ph_map, 'r') as f:
+            for line in f:
+                original_phs, ret_ph = line.strip().split()
+                for original_ph in original_phs.split(','):
+                    m[original_ph.strip()] = ret_ph.strip()
+        for l in params:
+            if 'ph_seq' in l:
+                l['ph_seq'] = ' '.join([m.get(ph, ph) for ph in l['ph_seq'].split()])
 
     if len(params) == 0:
         print('The input file is empty.')
@@ -277,6 +290,7 @@ def acoustic(
     required=False,
     help='Diffusion sampling steps'
 )
+@click.option('--ph_map', type=str, default="")
 def variance(
         proj: pathlib.Path,
         exp: str,
@@ -289,7 +303,8 @@ def variance(
         key: int,
         expr: float,
         seed: int,
-        steps: int
+        steps: int,
+        ph_map: str
 ):
     name = proj.stem if not title else title
     if out is None:
@@ -303,6 +318,17 @@ def variance(
     if not isinstance(params, list):
         params = [params]
     params = [OrderedDict(p) for p in params]
+
+    if ph_map != "":
+        m = {}
+        with open(ph_map, 'r') as f:
+            for line in f:
+                original_phs, ret_ph = line.strip().split()
+                for original_ph in original_phs.split(','):
+                    m[original_ph.strip()] = ret_ph.strip()
+        for l in params:
+            if 'ph_seq' in l:
+                l['ph_seq'] = ' '.join([m.get(ph, ph) for ph in l['ph_seq'].split()])
 
     if len(params) == 0:
         print('The input file is empty.')
