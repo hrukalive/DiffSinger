@@ -277,6 +277,8 @@ class BaseBinarizer:
         total_sec = {k: 0.0 for k in self.spk_map}
         total_raw_sec = {k: 0.0 for k in self.spk_map}
         extra_info = {'names': {}, 'spk_ids': {}, 'spk_names': {}, 'lengths': {}}
+        var_min = {}
+        var_max = {}
         max_no = -1
 
         for item_name, meta_data in self.meta_data_iterator(prefix):
@@ -294,6 +296,12 @@ class BaseBinarizer:
                 if isinstance(v, np.ndarray):
                     if k not in extra_info:
                         extra_info[k] = {}
+                    if k not in var_min or k not in var_max:
+                        var_min[k] = np.min(v)
+                        var_max[k] = np.max(v)
+                    else:
+                        var_min[k] = min(var_min[k], np.min(v))
+                        var_max[k] = max(var_max[k], np.max(v))
                     extra_info[k][item_no] = v.shape[0]
             extra_info['names'][item_no] = _item['name'].split(':', 1)[-1]
             extra_info['spk_ids'][item_no] = _item['spk_id']
@@ -341,6 +349,10 @@ class BaseBinarizer:
         if prefix == "train":
             extra_info.pop("names")
             extra_info.pop("spk_names")
+        extra_info['total_raw_sec'] = total_raw_sec
+        extra_info['total_sec'] = total_sec
+        extra_info['var_min'] = var_min
+        extra_info['var_max'] = var_max
         with open(self.binary_data_dir / f"{prefix}.meta", "wb") as f:
             # noinspection PyTypeChecker
             pickle.dump(extra_info, f)
@@ -361,6 +373,8 @@ class BaseBinarizer:
         else:
             print(f"| {prefix} total duration: {sum(total_raw_sec.values()):.2f}s")
             print(f"| {prefix} respective duration: " + ', '.join(f'{k}={v:.2f}s' for k, v in total_raw_sec.items()))
+        for k in var_min:
+            print(f"| {prefix} {k} range: {var_min[k]:.6f} ~ {var_max[k]:.6f}")
 
     def arrange_data_augmentation(self, data_iterator):
         """
