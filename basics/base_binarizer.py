@@ -64,6 +64,8 @@ class BaseBinarizer:
         self.build_spk_map()
 
         self.build_ph_map()
+        
+        self.transcription_file = hparams.get('transcription_file', ['transcriptions.csv' for _ in range(len(self.raw_data_dirs))])
 
         self.items = {}
         self.item_names: list = None

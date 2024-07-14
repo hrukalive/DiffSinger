@@ -65,7 +65,7 @@ class AcousticBinarizer(BaseBinarizer):
 
     def load_meta_data(self, raw_data_dir: pathlib.Path, ph_map, ds_id, spk_id):
         meta_data_dict = {}
-        with open(raw_data_dir / 'transcriptions.csv', 'r', encoding='utf-8') as f:
+        with open(raw_data_dir / self.transcription_file[ds_id], 'r', encoding='utf-8') as f:
             for utterance_label in csv.DictReader(f):
                 item_name = utterance_label['name']
                 temp_dict = {
