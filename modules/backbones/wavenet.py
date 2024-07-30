@@ -5,8 +5,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from utils.hparams import hparams
-
 
 class Conv1d(torch.nn.Conv1d):
     def __init__(self, *args, **kwargs):
@@ -63,10 +61,11 @@ class ResidualBlock(nn.Module):
 
 
 class WaveNet(nn.Module):
-    def __init__(self, in_dims, n_feats, *, n_layers=20, n_chans=256, n_dilates=4):
+    def __init__(self, in_dims, n_feats, hidden_size, *, n_layers=20, n_chans=256, n_dilates=4):
         super().__init__()
         self.in_dims = in_dims
         self.n_feats = n_feats
+        self.hidden_size = hidden_size
         self.input_projection = Conv1d(in_dims * n_feats, n_chans, 1)
         self.diffusion_embedding = SinusoidalPosEmb(n_chans)
         self.mlp = nn.Sequential(
@@ -76,7 +75,7 @@ class WaveNet(nn.Module):
         )
         self.residual_layers = nn.ModuleList([
             ResidualBlock(
-                encoder_hidden=hparams['hidden_size'],
+                encoder_hidden=hidden_size,
                 residual_channels=n_chans,
                 dilation=2 ** (i % n_dilates)
             )

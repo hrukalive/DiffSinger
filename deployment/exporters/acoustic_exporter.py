@@ -11,7 +11,6 @@ from basics.base_exporter import BaseExporter
 from deployment.modules.toplevel import DiffSingerAcousticONNX
 from modules.fastspeech.param_adaptor import VARIANCE_CHECKLIST
 from utils import load_ckpt, onnx_helper, remove_suffix
-from utils.hparams import hparams
 from utils.phoneme_utils import locate_dictionary, build_phoneme_list
 from utils.text_encoder import TokenTextEncoder
 
@@ -19,6 +18,7 @@ from utils.text_encoder import TokenTextEncoder
 class DiffSingerAcousticExporter(BaseExporter):
     def __init__(
             self,
+            config: dict,
             device: Union[str, torch.device] = 'cpu',
             cache_dir: Path = None,
             ckpt_steps: int = None,
@@ -27,12 +27,12 @@ class DiffSingerAcousticExporter(BaseExporter):
             export_spk: List[Tuple[str, Dict[str, float]]] = None,
             freeze_spk: Tuple[str, Dict[str, float]] = None
     ):
-        super().__init__(device=device, cache_dir=cache_dir)
+        super().__init__(config=config, device=device, cache_dir=cache_dir)
         # Basic attributes
-        self.model_name: str = hparams['exp_name']
+        self.model_name: str = self.config['exp_name']
         self.ckpt_steps: int = ckpt_steps
         self.spk_map: dict = self.build_spk_map()
-        self.vocab = TokenTextEncoder(vocab_list=build_phoneme_list())
+        self.vocab = TokenTextEncoder(vocab_list=build_phoneme_list(self.config))
         self.model = self.build_model()
         self.fs2_aux_cache_path = self.cache_dir / (
             'fs2_aux.onnx' if self.model.use_shallow_diffusion else 'fs2.onnx'
@@ -57,15 +57,15 @@ class DiffSingerAcousticExporter(BaseExporter):
         self.expose_gender = freeze_gender is None
         self.expose_velocity = not freeze_velocity
         self.freeze_spk: Tuple[str, Dict[str, float]] = freeze_spk \
-            if hparams['use_spk_id'] else None
+            if self.config['use_spk_id'] else None
         self.export_spk: List[Tuple[str, Dict[str, float]]] = export_spk \
-            if hparams['use_spk_id'] and export_spk is not None else []
-        if hparams['use_key_shift_embed'] and not self.expose_gender:
-            shift_min, shift_max = hparams['augmentation_args']['random_pitch_shifting']['range']
+            if self.config['use_spk_id'] and export_spk is not None else []
+        if self.config['use_key_shift_embed'] and not self.expose_gender:
+            shift_min, shift_max = self.config['augmentation_args']['random_pitch_shifting']['range']
             key_shift = freeze_gender * shift_max if freeze_gender >= 0. else freeze_gender * abs(shift_min)
             key_shift = max(min(key_shift, shift_max), shift_min)  # clip key shift
             self.model.fs2.register_buffer('frozen_key_shift', torch.FloatTensor([key_shift]).to(self.device))
-        if hparams['use_spk_id']:
+        if self.config['use_spk_id']:
             if not self.export_spk and self.freeze_spk is None:
                 # In case the user did not specify any speaker settings:
                 if len(self.spk_map) == 1:
@@ -81,9 +81,9 @@ class DiffSingerAcousticExporter(BaseExporter):
     def build_model(self) -> DiffSingerAcousticONNX:
         model = DiffSingerAcousticONNX(
             vocab_size=len(self.vocab),
-            out_dims=hparams['audio_num_mel_bins']
+            out_dims=self.config['audio_num_mel_bins']
         ).eval().to(self.device)
-        load_ckpt(model, hparams['work_dir'], ckpt_steps=self.ckpt_steps,
+        load_ckpt(model, self.config['work_dir'], ckpt_steps=self.ckpt_steps,
                   prefix_in_ckpt='model', strict=True, device=self.device)
         return model
 
@@ -121,7 +121,7 @@ class DiffSingerAcousticExporter(BaseExporter):
             # basic configs
             'phonemes': f'{self.model_name}.phonemes.txt',
             'acoustic': f'{model_name}.onnx',
-            'hidden_size': hparams['hidden_size'],
+            'hidden_size': self.config['hidden_size'],
             'vocoder': 'nsf_hifigan_44.1k_hop512_128bin_2024.02',
         }
         # multi-speaker
@@ -131,7 +131,7 @@ class DiffSingerAcousticExporter(BaseExporter):
         if self.expose_gender:
             dsconfig['augmentation_args'] = {
                 'random_pitch_shifting': {
-                    'range': hparams['augmentation_args']['random_pitch_shifting']['range']
+                    'range': self.config['augmentation_args']['random_pitch_shifting']['range']
                 }
             }
         dsconfig['use_key_shift_embed'] = self.expose_gender
@@ -143,13 +143,13 @@ class DiffSingerAcousticExporter(BaseExporter):
         dsconfig['use_variable_depth'] = self.model.use_shallow_diffusion
         dsconfig['max_depth'] = 1 - self.model.diffusion.t_start
         # mel specification
-        dsconfig['sample_rate'] = hparams['audio_sample_rate']
-        dsconfig['hop_size'] = hparams['hop_size']
-        dsconfig['win_size'] = hparams['win_size']
-        dsconfig['fft_size'] = hparams['fft_size']
-        dsconfig['num_mel_bins'] = hparams['audio_num_mel_bins']
-        dsconfig['mel_fmin'] = hparams['fmin']
-        dsconfig['mel_fmax'] = hparams['fmax'] if hparams['fmax'] is not None else hparams['audio_sample_rate'] / 2
+        dsconfig['sample_rate'] = self.config['audio_sample_rate']
+        dsconfig['hop_size'] = self.config['hop_size']
+        dsconfig['win_size'] = self.config['win_size']
+        dsconfig['fft_size'] = self.config['fft_size']
+        dsconfig['num_mel_bins'] = self.config['audio_num_mel_bins']
+        dsconfig['mel_fmin'] = self.config['fmin']
+        dsconfig['mel_fmax'] = self.config['fmax'] if self.config['fmax'] is not None else self.config['audio_sample_rate'] / 2
         dsconfig['mel_base'] = 'e'
         dsconfig['mel_scale'] = 'slaney'
         config_path = path / 'dsconfig.yaml'
@@ -188,23 +188,23 @@ class DiffSingerAcousticExporter(BaseExporter):
                 for v_name in self.model.fs2.variance_embed_list
             }
         }
-        if hparams['use_key_shift_embed']:
+        if self.config['use_key_shift_embed']:
             if self.expose_gender:
                 kwargs['gender'] = torch.rand((1, n_frames), dtype=torch.float32, device=self.device)
                 input_names.append('gender')
                 dynamix_axes['gender'] = {
                     1: 'n_frames'
                 }
-        if hparams['use_speed_embed']:
+        if self.config['use_speed_embed']:
             if self.expose_velocity:
                 kwargs['velocity'] = torch.rand((1, n_frames), dtype=torch.float32, device=self.device)
                 input_names.append('velocity')
                 dynamix_axes['velocity'] = {
                     1: 'n_frames'
                 }
-        if hparams['use_spk_id'] and not self.freeze_spk:
+        if self.config['use_spk_id'] and not self.freeze_spk:
             kwargs['spk_embed'] = torch.rand(
-                (1, n_frames, hparams['hidden_size']),
+                (1, n_frames, self.config['hidden_size']),
                 dtype=torch.float32, device=self.device
             )
             input_names.append('spk_embed')
@@ -233,12 +233,12 @@ class DiffSingerAcousticExporter(BaseExporter):
             opset_version=15
         )
 
-        condition = torch.rand((1, n_frames, hparams['hidden_size']), device=self.device)
+        condition = torch.rand((1, n_frames, self.config['hidden_size']), device=self.device)
 
         # Prepare inputs for backbone tracing and GaussianDiffusion scripting
-        shape = (1, 1, hparams['audio_num_mel_bins'], n_frames)
+        shape = (1, 1, self.config['audio_num_mel_bins'], n_frames)
         noise = torch.randn(shape, device=self.device)
-        x_aux = torch.randn((1, n_frames, hparams['audio_num_mel_bins']), device=self.device)
+        x_aux = torch.randn((1, n_frames, self.config['audio_num_mel_bins']), device=self.device)
         dummy_time = (torch.rand((1,), device=self.device) * self.model.diffusion.time_scale_factor).float()
         dummy_depth = torch.tensor(0.1, device=self.device)
         dummy_steps = 5
@@ -339,7 +339,7 @@ class DiffSingerAcousticExporter(BaseExporter):
 
     def _optimize_diffusion_graph(self, diffusion: onnx.ModelProto) -> onnx.ModelProto:
         onnx_helper.model_override_io_shapes(diffusion, output_shapes={
-            'mel': (1, 'n_frames', hparams['audio_num_mel_bins'])
+            'mel': (1, 'n_frames', self.config['audio_num_mel_bins'])
         })
         print(f'Running ONNX Simplifier #1 on {self.diffusion_class_name}...')
         diffusion, check = onnxsim.simplify(diffusion, include_subgraph=True)
