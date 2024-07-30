@@ -91,6 +91,7 @@ class DiffSingerVarianceExporter(BaseExporter):
 
     def build_model(self) -> DiffSingerVarianceONNX:
         model = DiffSingerVarianceONNX(
+            config=self.config,
             vocab_size=len(self.vocab)
         ).eval().to(self.device)
         load_ckpt(model, self.config['work_dir'], ckpt_steps=self.ckpt_steps,
@@ -796,7 +797,7 @@ class DiffSingerVarianceExporter(BaseExporter):
     # noinspection PyMethodMayBeStatic
     def _export_dictionary(self, path: Path):
         print(f'| export dictionary => {path}')
-        shutil.copy(locate_dictionary(), path)
+        shutil.copy(locate_dictionary(self.config), path)
 
     def _export_phonemes(self, path: Path):
         self.vocab.store_to_file(path)

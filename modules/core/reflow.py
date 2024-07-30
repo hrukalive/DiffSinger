@@ -145,7 +145,8 @@ class RectifiedFlow(nn.Module):
 
 
 class RepetitiveRectifiedFlow(RectifiedFlow):
-    def __init__(self, config: dict, vmin: float | int | list, vmax: float | int | list,
+    def __init__(self, config: dict,
+                 vmin: float | int | list, vmax: float | int | list,
                  repeat_bins: int, time_scale_factor=1000,
                  backbone_type=None, backbone_args=None):
         assert (isinstance(vmin, (float, int)) and isinstance(vmin, (float, int))) or len(vmin) == len(vmax)
@@ -154,7 +155,7 @@ class RepetitiveRectifiedFlow(RectifiedFlow):
         spec_max = [vmax] if num_feats == 1 else [[v] for v in vmax]
         self.repeat_bins = repeat_bins
         super().__init__(
-            config, out_dims=repeat_bins, num_feats=num_feats,
+            config=config, out_dims=repeat_bins, num_feats=num_feats,
             time_scale_factor=time_scale_factor,
             backbone_type=backbone_type, backbone_args=backbone_args,
             spec_min=spec_min, spec_max=spec_max
@@ -182,7 +183,8 @@ class RepetitiveRectifiedFlow(RectifiedFlow):
 
 
 class PitchRectifiedFlow(RepetitiveRectifiedFlow):
-    def __init__(self, config: dict, vmin: float, vmax: float,
+    def __init__(self, config: dict,
+                 vmin: float, vmax: float,
                  cmin: float, cmax: float, repeat_bins,
                  time_scale_factor=1000,
                  backbone_type=None, backbone_args=None):
@@ -191,7 +193,7 @@ class PitchRectifiedFlow(RepetitiveRectifiedFlow):
         self.cmin = cmin  # clip min
         self.cmax = cmax  # clip max
         super().__init__(
-            config, vmin=vmin, vmax=vmax, repeat_bins=repeat_bins,
+            config=config, vmin=vmin, vmax=vmax, repeat_bins=repeat_bins,
             time_scale_factor=time_scale_factor,
             backbone_type=backbone_type, backbone_args=backbone_args
         )
@@ -220,7 +222,7 @@ class MultiVarianceRectifiedFlow(RepetitiveRectifiedFlow):
         if len(vmax) == 1:
             vmax = vmax[0]
         super().__init__(
-            config, vmin=vmin, vmax=vmax, repeat_bins=repeat_bins,
+            config=config, vmin=vmin, vmax=vmax, repeat_bins=repeat_bins,
             time_scale_factor=time_scale_factor,
             backbone_type=backbone_type, backbone_args=backbone_args
         )

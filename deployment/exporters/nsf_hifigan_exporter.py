@@ -11,18 +11,18 @@ from torch import nn
 from basics.base_exporter import BaseExporter
 from deployment.modules.nsf_hifigan import NSFHiFiGANONNX
 from utils import load_ckpt, remove_suffix
-from utils.hparams import hparams
 
 
 class NSFHiFiGANExporter(BaseExporter):
     def __init__(
             self,
+            config: dict,
             device: Union[str, torch.device] = 'cpu',
             cache_dir: Path = None,
             model_path: Path = None,
             model_name: str = 'nsf_hifigan'
     ):
-        super().__init__(device=device, cache_dir=cache_dir)
+        super().__init__(config=config, device=device, cache_dir=cache_dir)
         self.model_path = model_path
         self.model_name = model_name
         self.model = self.build_model()
@@ -33,7 +33,7 @@ class NSFHiFiGANExporter(BaseExporter):
         config_path = self.model_path.with_name('config.json')
         with open(config_path, 'r', encoding='utf8') as f:
             config = json.load(f)
-        model = NSFHiFiGANONNX(config, mel_base=hparams.get('mel_base', '10')).eval().to(self.device)
+        model = NSFHiFiGANONNX(config, mel_base=self.config.get('mel_base', '10')).eval().to(self.device)
         load_ckpt(model.generator, str(self.model_path),
                   prefix_in_ckpt=None, key_in_ckpt='generator',
                   strict=True, device=self.device)
@@ -60,14 +60,14 @@ class NSFHiFiGANExporter(BaseExporter):
                 'name': self.model_name,
                 'model': self.model_cache_path.name,
                 # mel specifications
-                'sample_rate': hparams['audio_sample_rate'],
-                'hop_size': hparams['hop_size'],
-                'win_size': hparams['win_size'],
-                'fft_size': hparams['fft_size'],
-                'num_mel_bins': hparams['audio_num_mel_bins'],
-                'mel_fmin': hparams['fmin'],
-                'mel_fmax': hparams['fmax'] if hparams['fmax'] is not None else hparams['audio_sample_rate'] / 2,
-                'mel_base': str(hparams.get('mel_base', '10')),
+                'sample_rate': self.config['audio_sample_rate'],
+                'hop_size': self.config['hop_size'],
+                'win_size': self.config['win_size'],
+                'fft_size': self.config['fft_size'],
+                'num_mel_bins': self.config['audio_num_mel_bins'],
+                'mel_fmin': self.config['fmin'],
+                'mel_fmax': self.config['fmax'] if self.config['fmax'] is not None else self.config['audio_sample_rate'] / 2,
+                'mel_base': str(self.config.get('mel_base', '10')),
                 'mel_scale': 'slaney',
             }, fw, sort_keys=False)
         print(f'| export configs => {config_path} **PLEASE EDIT BEFORE USE**')
@@ -76,7 +76,7 @@ class NSFHiFiGANExporter(BaseExporter):
     def _torch_export_model(self):
         # Prepare inputs for NSFHiFiGAN
         n_frames = 10
-        mel = torch.randn((1, n_frames, hparams['audio_num_mel_bins']), dtype=torch.float32, device=self.device)
+        mel = torch.randn((1, n_frames, self.config['audio_num_mel_bins']), dtype=torch.float32, device=self.device)
         f0 = torch.randn((1, n_frames), dtype=torch.float32, device=self.device) + 440.
 
         # PyTorch ONNX export for NSFHiFiGAN
