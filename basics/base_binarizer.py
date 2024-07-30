@@ -10,7 +10,6 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from utils.hparams import hparams
 from utils.indexed_datasets import IndexedDatasetBuilder
 from utils.multiprocess_utils import chunked_multiprocess_run
 from utils.phoneme_utils import build_phoneme_list, locate_dictionary
@@ -44,23 +43,24 @@ class BaseBinarizer:
             the phoneme set.
     """
 
-    def __init__(self, data_dir=None, data_attrs=None):
+    def __init__(self, config: dict, data_dir=None, data_attrs=None):
+        self.config = config
         if data_dir is None:
-            data_dir = hparams['raw_data_dir']
+            data_dir = self.config['raw_data_dir']
         if not isinstance(data_dir, list):
             data_dir = [data_dir]
 
         self.raw_data_dirs = [pathlib.Path(d) for d in data_dir]
-        self.binary_data_dir = pathlib.Path(hparams['binary_data_dir'])
+        self.binary_data_dir = pathlib.Path(self.config['binary_data_dir'])
         self.data_attrs = [] if data_attrs is None else data_attrs
 
-        self.binarization_args = hparams['binarization_args']
-        self.augmentation_args = hparams.get('augmentation_args', {})
+        self.binarization_args = self.config['binarization_args']
+        self.augmentation_args = self.config.get('augmentation_args', {})
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         self.spk_map = None
-        self.spk_ids = hparams['spk_ids']
-        self.speakers = hparams['speakers']
+        self.spk_ids = self.config['spk_ids']
+        self.speakers = self.config['speakers']
         self.build_spk_map()
 
         self.items = {}
@@ -68,8 +68,8 @@ class BaseBinarizer:
         self._train_item_names: list = None
         self._valid_item_names: list = None
 
-        self.phone_encoder = TokenTextEncoder(vocab_list=build_phoneme_list())
-        self.timestep = hparams['hop_size'] / hparams['audio_sample_rate']
+        self.phone_encoder = TokenTextEncoder(vocab_list=build_phoneme_list(self.config))
+        self.timestep = self.config['hop_size'] / self.config['audio_sample_rate']
 
     def build_spk_map(self):
         assert isinstance(self.speakers, list), 'Speakers must be a list'
@@ -80,7 +80,7 @@ class BaseBinarizer:
         else:
             assert len(self.spk_ids) == len(self.raw_data_dirs), \
                 'Length of explicitly given spk_ids must equal the number of raw datasets.'
-        assert max(self.spk_ids) < hparams['num_spk'], \
+        assert max(self.spk_ids) < self.config['num_spk'], \
             f'Index in spk_id sequence {self.spk_ids} is out of range. All values should be smaller than num_spk.'
 
         self.spk_map = {}
@@ -100,7 +100,7 @@ class BaseBinarizer:
         Split the dataset into training set and validation set.
         :return: train_item_names, valid_item_names
         """
-        prefixes = {str(pr): 1 for pr in hparams['test_prefixes']}
+        prefixes = {str(pr): 1 for pr in self.config['test_prefixes']}
         valid_item_names = {}
         # Add prefixes that specified speaker index and matches exactly item name to test set
         for prefix in deepcopy(prefixes):
@@ -181,7 +181,7 @@ class BaseBinarizer:
         spk_map_fn = self.binary_data_dir / 'spk_map.json'
         with open(spk_map_fn, 'w', encoding='utf-8') as f:
             json.dump(self.spk_map, f)
-        shutil.copy(locate_dictionary(), self.binary_data_dir / 'dictionary.txt')
+        shutil.copy(locate_dictionary(self.config), self.binary_data_dir / 'dictionary.txt')
         self.check_coverage()
 
         # Process valid set and train set
@@ -197,7 +197,7 @@ class BaseBinarizer:
 
     def check_coverage(self):
         # Group by phonemes in the dictionary.
-        ph_required = set(build_phoneme_list())
+        ph_required = set(build_phoneme_list(self.config))
         phoneme_map = {}
         for ph in ph_required:
             phoneme_map[ph] = 0
