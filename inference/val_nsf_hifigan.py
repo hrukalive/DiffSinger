@@ -55,8 +55,8 @@ config, config_chain = read_full_config(pathlib.Path('configs/acoustic.yaml'))
 print_config(config, config_chain)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 vocoder = NsfHifiGAN(config)
-in_path = '/data/dsun18/diffsinger/DiffSinger/data/Mine/Hisaka_Soft/raw/wavs'
-out_path = '/dev/shm/dstest'
+in_path = 'path/to/input/wavs'
+out_path = 'path/to/output/wavs'
 os.makedirs(out_path, exist_ok=True)
 for filename in tqdm.tqdm(os.listdir(in_path)):
     if not filename.endswith('.wav'):
