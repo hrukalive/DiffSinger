@@ -102,26 +102,30 @@ class GaussianDiffusionONNX(GaussianDiffusion):
         b = (self.spec_max + self.spec_min) / 2.
         return x * k + b
 
-    def forward(self, condition, x_start=None, depth: int = 1000, speedup: int = 1):
+    def forward(self, condition, x_start=None, depth=None, steps: int = 10):
         condition = condition.transpose(1, 2)  # [1, T, H] => [1, H, T]
         device = condition.device
         n_frames = condition.shape[2]
 
         noise = torch.randn((1, self.num_feats, self.out_dims, n_frames), device=device)
         if x_start is None:
+            speedup = max(1, self.timesteps // steps)
+            speedup = self.timestep_factors[torch.sum(self.timestep_factors <= speedup) - 1]
             step_range = torch.arange(0, self.k_step, speedup, dtype=torch.long, device=device).flip(0)[:, None]
             x = noise
         else:
-            depth = min(depth, self.k_step)
-            step_range = torch.arange(0, depth, speedup, dtype=torch.long, device=device).flip(0)[:, None]
+            depth_int64 = min(torch.round(depth * self.timesteps).long(), self.k_step)
+            speedup = max(1, depth_int64 // steps)
+            depth_int64 = depth_int64 // speedup * speedup  # make depth_int64 a multiple of speedup
+            step_range = torch.arange(0, depth_int64, speedup, dtype=torch.long, device=device).flip(0)[:, None]
             x_start = self.norm_spec(x_start).transpose(-2, -1)
             if self.num_feats == 1:
                 x_start = x_start[:, None, :, :]
-            if depth >= self.timesteps:
+            if depth_int64 >= self.timesteps:
                 x = noise
-            elif depth > 0:
+            elif depth_int64 > 0:
                 x = self.q_sample(
-                    x_start, torch.full((1,), depth - 1, device=device, dtype=torch.long), noise
+                    x_start, torch.full((1,), depth_int64 - 1, device=device, dtype=torch.long), noise
                 )
             else:
                 x = x_start

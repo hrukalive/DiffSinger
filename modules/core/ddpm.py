@@ -108,6 +108,12 @@ class GaussianDiffusion(nn.Module):
         self.register_buffer('spec_min', spec_min)
         self.register_buffer('spec_max', spec_max)
 
+        # for compatibility with ONNX continuous acceleration
+        self.time_scale_factor = self.timesteps
+        self.t_start = 1 - self.k_step / self.timesteps
+        factors = torch.LongTensor([i for i in range(1, self.timesteps + 1) if self.timesteps % i == 0])
+        self.register_buffer('timestep_factors', factors, persistent=False)
+
     def q_mean_variance(self, x_start, t):
         mean = extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start
         variance = extract(1. - self.alphas_cumprod, t, x_start.shape)

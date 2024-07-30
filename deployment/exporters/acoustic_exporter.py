@@ -78,14 +78,6 @@ class DiffSingerAcousticExporter(BaseExporter):
             if self.freeze_spk is not None:
                 self.model.fs2.register_buffer('frozen_spk_embed', self._perform_spk_mix(self.freeze_spk[1]))
 
-        # Acceleration
-        if self.model.diffusion_type == 'ddpm':
-            self.acceleration_type = 'discrete'
-        elif self.model.diffusion_type == 'reflow':
-            self.acceleration_type = 'continuous'
-        else:
-            raise ValueError(f'Invalid diffusion type: {self.model.diffusion_type}')
-
     def build_model(self) -> DiffSingerAcousticONNX:
         model = DiffSingerAcousticONNX(
             vocab_size=len(self.vocab),
@@ -147,12 +139,9 @@ class DiffSingerAcousticExporter(BaseExporter):
         for variance in VARIANCE_CHECKLIST:
             dsconfig[f'use_{variance}_embed'] = (variance in self.model.fs2.variance_embed_list)
         # sampling acceleration and shallow diffusion
-        dsconfig['use_continuous_acceleration'] = self.acceleration_type == 'continuous'
+        dsconfig['use_continuous_acceleration'] = True
         dsconfig['use_variable_depth'] = self.model.use_shallow_diffusion
-        if self.acceleration_type == 'continuous':
-            dsconfig['max_depth'] = 1 - self.model.diffusion.t_start
-        else:
-            dsconfig['max_depth'] = self.model.diffusion.k_step
+        dsconfig['max_depth'] = 1 - self.model.diffusion.t_start
         # mel specification
         dsconfig['sample_rate'] = hparams['audio_sample_rate']
         dsconfig['hop_size'] = hparams['hop_size']
@@ -161,7 +150,7 @@ class DiffSingerAcousticExporter(BaseExporter):
         dsconfig['num_mel_bins'] = hparams['audio_num_mel_bins']
         dsconfig['mel_fmin'] = hparams['fmin']
         dsconfig['mel_fmax'] = hparams['fmax'] if hparams['fmax'] is not None else hparams['audio_sample_rate'] / 2
-        dsconfig['mel_base'] = str(hparams.get('mel_base', '10'))
+        dsconfig['mel_base'] = 'e'
         dsconfig['mel_scale'] = 'slaney'
         config_path = path / 'dsconfig.yaml'
         with open(config_path, 'w', encoding='utf8') as fw:
@@ -250,14 +239,9 @@ class DiffSingerAcousticExporter(BaseExporter):
         shape = (1, 1, hparams['audio_num_mel_bins'], n_frames)
         noise = torch.randn(shape, device=self.device)
         x_aux = torch.randn((1, n_frames, hparams['audio_num_mel_bins']), device=self.device)
-        if self.acceleration_type == 'continuous':
-            time_or_step = (torch.rand((1,), device=self.device) * self.model.diffusion.time_scale_factor).float()
-            dummy_depth = torch.tensor(0.1, device=self.device)
-            dummy_steps_or_speedup = 5
-        else:
-            time_or_step = (torch.rand((1,), device=self.device) * self.model.diffusion.k_step).long()
-            dummy_depth = torch.tensor(0.1, device=self.device)
-            dummy_steps_or_speedup = 200
+        dummy_time = (torch.rand((1,), device=self.device) * self.model.diffusion.time_scale_factor).float()
+        dummy_depth = torch.tensor(0.1, device=self.device)
+        dummy_steps = 5
 
         print(f'Tracing {self.backbone_class_name} backbone...')
         if self.model.diffusion_type == 'ddpm':
@@ -271,7 +255,7 @@ class DiffSingerAcousticExporter(BaseExporter):
                 major_mel_decoder.diffusion.backbone,
                 (
                     noise,
-                    time_or_step,
+                    dummy_time,
                     condition.transpose(1, 2)
                 )
             )
@@ -291,7 +275,7 @@ class DiffSingerAcousticExporter(BaseExporter):
                 ),
                 (
                     *diffusion_inputs,
-                    dummy_steps_or_speedup  # p_sample_plms branch
+                    dummy_steps  # p_sample_plms branch
                 )
             ]
         )
@@ -302,13 +286,13 @@ class DiffSingerAcousticExporter(BaseExporter):
             major_mel_decoder,
             (
                 *diffusion_inputs,
-                dummy_steps_or_speedup
+                dummy_steps
             ),
             self.diffusion_cache_path,
             input_names=[
                 'condition',
                 *(['x_aux', 'depth'] if self.model.use_shallow_diffusion else []),
-                ('steps' if self.acceleration_type == 'continuous' else 'speedup')
+                'steps'
             ],
             output_names=[
                 'mel'

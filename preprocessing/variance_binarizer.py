@@ -166,7 +166,7 @@ class VarianceBinarizer(BaseBinarizer):
                 assert len(temp_dict['ph_seq']) == len(temp_dict['ph_dur']), \
                     f'Lengths of ph_seq and ph_dur mismatch in \'{item_name}\'.'
                 assert all(ph_dur >= 0 for ph_dur in temp_dict['ph_dur']), \
-                    f'Negative duration found in \'{item_name}\'.'
+                    f'Negative ph_dur found in \'{item_name}\'.'
 
                 if hparams['predict_dur']:
                     temp_dict['ph_num'] = [int(x) for x in require('ph_num').split()]
@@ -176,6 +176,8 @@ class VarianceBinarizer(BaseBinarizer):
                 if hparams['predict_pitch']:
                     temp_dict['note_seq'] = require('note_seq').split()
                     temp_dict['note_dur'] = [float(x) for x in require('note_dur').split()]
+                    assert all(note_dur >= 0 for note_dur in temp_dict['note_dur']), \
+                        f'Negative note_dur found in \'{item_name}\'.'
                     assert len(temp_dict['note_seq']) == len(temp_dict['note_dur']), \
                         f'Lengths of note_seq and note_dur mismatch in \'{item_name}\'.'
                     assert any([note != 'rest' for note in temp_dict['note_seq']]), \

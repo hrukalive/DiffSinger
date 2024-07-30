@@ -31,7 +31,7 @@ class SpectrogramStretchAugmentation(BaseAugmentation):
         mel = get_mel_torch(
             waveform, hparams['audio_sample_rate'], num_mel_bins=hparams['audio_num_mel_bins'],
             hop_size=hparams['hop_size'], win_size=hparams['win_size'], fft_size=hparams['fft_size'],
-            fmin=hparams['fmin'], fmax=hparams['fmax'], mel_base=hparams['mel_base'],
+            fmin=hparams['fmin'], fmax=hparams['fmax'],
             keyshift=key_shift, speed=speed, device=self.device
         )
 

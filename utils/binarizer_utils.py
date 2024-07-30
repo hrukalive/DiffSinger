@@ -14,19 +14,15 @@ def get_mel_torch(
         waveform, samplerate,
         *,
         num_mel_bins=128, hop_size=512, win_size=2048, fft_size=2048,
-        fmin=40, fmax=16000, mel_base='e',
+        fmin=40, fmax=16000,
         keyshift=0, speed=1, device=None
 ):
     if device is None:
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    stft = STFT(samplerate, num_mel_bins, fft_size, win_size, hop_size, fmin, fmax)
+    stft = STFT(samplerate, num_mel_bins, fft_size, win_size, hop_size, fmin, fmax, device=device)
     with torch.no_grad():
         wav_torch = torch.from_numpy(waveform).to(device)
         mel_torch = stft.get_mel(wav_torch.unsqueeze(0), keyshift=keyshift, speed=speed).squeeze(0).T
-        if mel_base != 'e':
-            assert mel_base in [10, '10'], "mel_base must be 'e', '10' or 10."
-            # log mel to log10 mel
-            mel_torch = 0.434294 * mel_torch
         return mel_torch.cpu().numpy()
 
 

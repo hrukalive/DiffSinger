@@ -33,7 +33,11 @@ class NSFHiFiGANExporter(BaseExporter):
         config_path = self.model_path.with_name('config.json')
         with open(config_path, 'r', encoding='utf8') as f:
             config = json.load(f)
-        model = NSFHiFiGANONNX(config, mel_base=hparams.get('mel_base', '10')).eval().to(self.device)
+        assert hparams.get('mel_base') == 'e', (
+            "Mel base must be set to \'e\' according to 2nd stage of the migration plan. "
+            "See https://github.com/openvpi/DiffSinger/releases/tag/v2.3.0 for more details."
+        )
+        model = NSFHiFiGANONNX(config).eval().to(self.device)
         load_ckpt(model.generator, str(self.model_path),
                   prefix_in_ckpt=None, key_in_ckpt='generator',
                   strict=True, device=self.device)
@@ -67,7 +71,7 @@ class NSFHiFiGANExporter(BaseExporter):
                 'num_mel_bins': hparams['audio_num_mel_bins'],
                 'mel_fmin': hparams['fmin'],
                 'mel_fmax': hparams['fmax'] if hparams['fmax'] is not None else hparams['audio_sample_rate'] / 2,
-                'mel_base': str(hparams.get('mel_base', '10')),
+                'mel_base': 'e',
                 'mel_scale': 'slaney',
             }, fw, sort_keys=False)
         print(f'| export configs => {config_path} **PLEASE EDIT BEFORE USE**')

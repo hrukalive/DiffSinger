@@ -65,7 +65,7 @@ for filename in tqdm.tqdm(os.listdir(in_path)):
     mel = get_mel_torch(
         wav, hparams['audio_sample_rate'], num_mel_bins=hparams['audio_num_mel_bins'],
         hop_size=hparams['hop_size'], win_size=hparams['win_size'], fft_size=hparams['fft_size'],
-        fmin=hparams['fmin'], fmax=hparams['fmax'], mel_base=hparams['mel_base'],
+        fmin=hparams['fmin'], fmax=hparams['fmax'],
         device=device
     )
 

@@ -81,14 +81,6 @@ class DiffSingerVarianceExporter(BaseExporter):
             if self.freeze_spk is not None:
                 self.model.register_buffer('frozen_spk_embed', self._perform_spk_mix(self.freeze_spk[1]))
 
-        # Acceleration
-        if self.model.diffusion_type == 'ddpm':
-            self.acceleration_type = 'discrete'
-        elif self.model.diffusion_type == 'reflow':
-            self.acceleration_type = 'continuous'
-        else:
-            raise ValueError(f'Invalid diffusion type: {self.model.diffusion_type}')
-
     def build_model(self) -> DiffSingerVarianceONNX:
         model = DiffSingerVarianceONNX(
             vocab_size=len(self.vocab)
@@ -178,7 +170,7 @@ class DiffSingerVarianceExporter(BaseExporter):
             for variance in VARIANCE_CHECKLIST:
                 dsconfig[f'predict_{variance}'] = (variance in self.model.variance_prediction_list)
         # sampling acceleration
-        dsconfig['use_continuous_acceleration'] = self.acceleration_type == 'continuous'
+        dsconfig['use_continuous_acceleration'] = True
         # frame specifications
         dsconfig['sample_rate'] = hparams['audio_sample_rate']
         dsconfig['hop_size'] = hparams['hop_size']
@@ -299,12 +291,8 @@ class DiffSingerVarianceExporter(BaseExporter):
             )
 
         # Common dummy inputs
-        if self.acceleration_type == 'continuous':
-            time_or_step = (torch.rand((1,), device=self.device) * hparams['time_scale_factor']).float()
-            dummy_steps_or_speedup = 5
-        else:
-            time_or_step = (torch.rand((1,), device=self.device) * hparams['K_step']).long()
-            dummy_steps_or_speedup = 200
+        dummy_time = (torch.rand((1,), device=self.device) * hparams.get('time_scale_factor', 1.0)).float()
+        dummy_steps = 5
 
         if self.model.predict_pitch:
             use_melody_encoder = hparams.get('use_melody_encoder', False)
@@ -386,18 +374,13 @@ class DiffSingerVarianceExporter(BaseExporter):
             condition = torch.rand((1, hparams['hidden_size'], 15), device=self.device)
 
             print(f'Tracing {self.pitch_backbone_class_name} backbone...')
-            if self.model.diffusion_type == 'ddpm':
-                pitch_predictor = self.model.view_as_pitch_diffusion()
-            elif self.model.diffusion_type == 'reflow':
-                pitch_predictor = self.model.view_as_pitch_reflow()
-            else:
-                raise ValueError(f'Invalid diffusion type: {self.model.diffusion_type}')
+            pitch_predictor = self.model.view_as_pitch_predictor()
             pitch_predictor.pitch_predictor.set_backbone(
                 torch.jit.trace(
                     pitch_predictor.pitch_predictor.backbone,
                     (
                         noise,
-                        time_or_step,
+                        dummy_time,
                         condition
                     )
                 )
@@ -413,7 +396,7 @@ class DiffSingerVarianceExporter(BaseExporter):
                     ),
                     (
                         condition.transpose(1, 2),
-                        dummy_steps_or_speedup  # p_sample_plms branch
+                        dummy_steps  # p_sample_plms branch
                     )
                 ]
             )
@@ -423,12 +406,12 @@ class DiffSingerVarianceExporter(BaseExporter):
                 pitch_predictor,
                 (
                     condition.transpose(1, 2),
-                    dummy_steps_or_speedup
+                    dummy_steps
                 ),
                 self.pitch_predictor_cache_path,
                 input_names=[
                     'pitch_cond',
-                    ('steps' if self.acceleration_type == 'continuous' else 'speedup')
+                    'steps'
                 ],
                 output_names=[
                     'x_pred'
@@ -538,12 +521,7 @@ class DiffSingerVarianceExporter(BaseExporter):
             step = (torch.rand((1,), device=self.device) * hparams['K_step']).long()
 
             print(f'Tracing {self.variance_backbone_class_name} backbone...')
-            if self.model.diffusion_type == 'ddpm':
-                multi_var_predictor = self.model.view_as_variance_diffusion()
-            elif self.model.diffusion_type == 'reflow':
-                multi_var_predictor = self.model.view_as_variance_reflow()
-            else:
-                raise ValueError(f'Invalid diffusion type: {self.model.diffusion_type}')
+            multi_var_predictor = self.model.view_as_variance_predictor()
             multi_var_predictor.variance_predictor.set_backbone(
                 torch.jit.trace(
                     multi_var_predictor.variance_predictor.backbone,
@@ -565,7 +543,7 @@ class DiffSingerVarianceExporter(BaseExporter):
                     ),
                     (
                         condition.transpose(1, 2),
-                        dummy_steps_or_speedup  # p_sample_plms branch
+                        dummy_steps  # p_sample_plms branch
                     )
                 ]
             )
@@ -575,12 +553,12 @@ class DiffSingerVarianceExporter(BaseExporter):
                 multi_var_predictor,
                 (
                     condition.transpose(1, 2),
-                    dummy_steps_or_speedup
+                    dummy_steps
                 ),
                 self.multi_var_predictor_cache_path,
                 input_names=[
                     'variance_cond',
-                    ('steps' if self.acceleration_type == 'continuous' else 'speedup')
+                    'steps'
                 ],
                 output_names=[
                     'xs_pred'

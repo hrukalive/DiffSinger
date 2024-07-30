@@ -1073,10 +1073,12 @@ The maximum validation batch size.
 
 The logarithmic base of mel spectrogram calculation.
 
+**WARNING: Since v2.4.0 release, this value is no longer configurable for preprocessing new datasets.**
+
 <table><tbody>
 <tr><td align="center"><b>visibility</b></td><td>acoustic</td>
 <tr><td align="center"><b>scope</b></td><td>preprocessing</td>
-<tr><td align="center"><b>customizability</b></td><td>not recommended</td>
+<tr><td align="center"><b>customizability</b></td><td>reserved</td>
 <tr><td align="center"><b>type</b></td><td>str</td>
 <tr><td align="center"><b>default</b></td><td>e</td>
 </tbody></table>
