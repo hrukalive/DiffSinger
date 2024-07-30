@@ -24,21 +24,20 @@ class DiffSingerAcousticInfer(BaseSVSInfer):
         super().__init__(config, device=device)
         if load_model:
             self.variance_checklist = []
-
             self.variances_to_embed = set()
 
-            if self.config.get('use_energy_embed', False):
+            if config.get('use_energy_embed', False):
                 self.variances_to_embed.add('energy')
-            if self.config.get('use_breathiness_embed', False):
+            if config.get('use_breathiness_embed', False):
                 self.variances_to_embed.add('breathiness')
-            if self.config.get('use_voicing_embed', False):
+            if config.get('use_voicing_embed', False):
                 self.variances_to_embed.add('voicing')
-            if self.config.get('use_tension_embed', False):
+            if config.get('use_tension_embed', False):
                 self.variances_to_embed.add('tension')
 
-            self.ph_encoder = TokenTextEncoder(vocab_list=build_phoneme_list(self.config))
-            if self.config['use_spk_id']:
-                with open(pathlib.Path(self.config['work_dir']) / 'spk_map.json', 'r', encoding='utf8') as f:
+            self.ph_encoder = TokenTextEncoder(vocab_list=build_phoneme_list(config))
+            if config['use_spk_id']:
+                with open(pathlib.Path(config['work_dir']) / 'spk_map.json', 'r', encoding='utf8') as f:
                     self.spk_map = json.load(f)
                 assert isinstance(self.spk_map, dict) and len(self.spk_map) > 0, 'Invalid or empty speaker map!'
                 assert len(self.spk_map) == len(set(self.spk_map.values())), 'Duplicate speaker id in speaker map!'
@@ -49,6 +48,7 @@ class DiffSingerAcousticInfer(BaseSVSInfer):
 
     def build_model(self, ckpt_steps=None):
         model = DiffSingerAcoustic(
+            config=self.config,
             vocab_size=len(self.ph_encoder),
             out_dims=self.config['audio_num_mel_bins']
         ).eval().to(self.device)

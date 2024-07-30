@@ -33,16 +33,16 @@ class DiffSingerVarianceInfer(BaseSVSInfer):
             predictions: set = None
     ):
         super().__init__(config, device=device)
-        self.ph_encoder = TokenTextEncoder(vocab_list=build_phoneme_list(self.config))
-        if self.config['use_spk_id']:
-            with open(pathlib.Path(self.config['work_dir']) / 'spk_map.json', 'r', encoding='utf8') as f:
+        self.ph_encoder = TokenTextEncoder(vocab_list=build_phoneme_list(config))
+        if config['use_spk_id']:
+            with open(pathlib.Path(config['work_dir']) / 'spk_map.json', 'r', encoding='utf8') as f:
                 self.spk_map = json.load(f)
             assert isinstance(self.spk_map, dict) and len(self.spk_map) > 0, 'Invalid or empty speaker map!'
             assert len(self.spk_map) == len(set(self.spk_map.values())), 'Duplicate speaker id in speaker map!'
         self.model: DiffSingerVariance = self.build_model(ckpt_steps=ckpt_steps)
         self.lr = LengthRegulator()
         self.rr = RhythmRegulator()
-        smooth_kernel_size = round(self.config['midi_smooth_width'] / self.timestep)
+        smooth_kernel_size = round(config['midi_smooth_width'] / self.timestep)
         self.smooth = nn.Conv1d(
             in_channels=1,
             out_channels=1,
@@ -57,7 +57,7 @@ class DiffSingerVarianceInfer(BaseSVSInfer):
         smooth_kernel /= smooth_kernel.sum()
         self.smooth.weight.data = smooth_kernel[None, None]
 
-        glide_types = self.config.get('glide_types', [])
+        glide_types = config.get('glide_types', [])
         assert 'none' not in glide_types, 'Type name \'none\' is reserved and should not appear in glide_types.'
         self.glide_map = {
             'none': 0,
@@ -68,13 +68,14 @@ class DiffSingerVarianceInfer(BaseSVSInfer):
         }
 
         self.auto_completion_mode = len(predictions) == 0
-        self.global_predict_dur = 'dur' in predictions and self.config['predict_dur']
-        self.global_predict_pitch = 'pitch' in predictions and self.config['predict_pitch']
+        self.global_predict_dur = 'dur' in predictions and config['predict_dur']
+        self.global_predict_pitch = 'pitch' in predictions and config['predict_pitch']
         self.variance_prediction_set = predictions.intersection(VARIANCE_CHECKLIST)
         self.global_predict_variances = len(self.variance_prediction_set) > 0
 
     def build_model(self, ckpt_steps=None):
         model = DiffSingerVariance(
+            config=self.config,
             vocab_size=len(self.ph_encoder)
         ).eval().to(self.device)
         load_ckpt(model, self.config['work_dir'], ckpt_steps=ckpt_steps,

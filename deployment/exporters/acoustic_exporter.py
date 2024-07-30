@@ -80,6 +80,7 @@ class DiffSingerAcousticExporter(BaseExporter):
 
     def build_model(self) -> DiffSingerAcousticONNX:
         model = DiffSingerAcousticONNX(
+            self.config,
             vocab_size=len(self.vocab),
             out_dims=self.config['audio_num_mel_bins']
         ).eval().to(self.device)
@@ -398,7 +399,7 @@ class DiffSingerAcousticExporter(BaseExporter):
     # noinspection PyMethodMayBeStatic
     def _export_dictionary(self, path: Path):
         print(f'| export dictionary => {path}')
-        shutil.copy(locate_dictionary(), path)
+        shutil.copy(locate_dictionary(self.config), path)
 
     def _export_phonemes(self, path: Path):
         self.vocab.store_to_file(path)
