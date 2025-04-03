@@ -67,8 +67,8 @@ enc_ffn_kernel_size: 3
 use_rope: true
 hidden_size: 256
 dur_prediction_args:
-  arch: fs2
-  hidden_size: 512
+  arch: resnet
+  hidden_size: 256
   dropout: 0.1
   num_layers: 5
   kernel_size: 3
@@ -123,11 +123,15 @@ lambda_pitch_loss: 1.0
 lambda_var_loss: 1.0
 
 optimizer_args:
+  optimizer_cls: modules.optimizer.muon.Muon_AdamW
   lr: 0.0006
+  muon_args:
+    weight_decay: 0.1
+  adamw_args:
+    weight_decay: 0.0
 lr_scheduler_args:
-  scheduler_cls: torch.optim.lr_scheduler.StepLR
-  step_size: 10000
-  gamma: 0.75
+  step_size: 5000
+  gamma: 0.8
 max_batch_frames: 80000
 max_batch_size: 48
 max_updates: 160000

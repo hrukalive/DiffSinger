@@ -40,8 +40,8 @@ rel_pos: true
 hidden_size: 256
 
 dur_prediction_args:
-  arch: fs2
-  hidden_size: 512
+  arch: resnet
+  hidden_size: 256
   dropout: 0.1
   num_layers: 5
   kernel_size: 3
@@ -114,10 +114,15 @@ diff_speedup: 10
 # train and eval
 num_sanity_val_steps: 1
 optimizer_args:
+  optimizer_cls: modules.optimizer.muon.Muon_AdamW
   lr: 0.0006
+  muon_args:
+    weight_decay: 0.1
+  adamw_args:
+    weight_decay: 0.0
 lr_scheduler_args:
-  step_size: 10000
-  gamma: 0.75
+  step_size: 5000
+  gamma: 0.8
 max_batch_frames: 80000
 max_batch_size: 48
 dataset_size_key: 'lengths'
