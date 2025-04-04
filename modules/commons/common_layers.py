@@ -120,8 +120,8 @@ class SwiGLU(nn.Module):
             gate_min, gate_max = torch.aminmax(gate.detach())
             max_abs_out = torch.max(-out_min, out_max).float()
             max_abs_gate = torch.max(-gate_min, gate_max).float()
-            if max_abs_out * max_abs_gate > 65504:
-                return (out.float() * gate.float()).clamp(-65504, 65504).half()             
+            if max_abs_out * max_abs_gate > 1000:
+                return (out.float() * gate.float()).clamp(-1000, 1000).half()             
         return out * gate
 
 
