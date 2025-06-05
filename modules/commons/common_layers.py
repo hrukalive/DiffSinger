@@ -128,6 +128,19 @@ class SwiGLU(nn.Module):
         return out * gate
 
 
+class ATanGLU(nn.Module):
+    # ArcTan-Applies the gated linear unit function.
+    def __init__(self, dim=-1):
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, x):
+        # out, gate = x.chunk(2, dim=self.dim)
+        # Using torch.split instead of chunk for ONNX export compatibility.
+        out, gate = torch.split(x, x.size(self.dim) // 2, dim=self.dim)
+        return out * torch.atan(gate)
+        
+        
 class KaimingNormalConv1d(torch.nn.Conv1d):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -159,6 +172,9 @@ class TransformerFFNLayer(nn.Module):
             self.act_fn = SiLU()
         elif self.act == 'swiglu':
             self.act_fn = SwiGLU()
+            filter_size_1 = filter_size * 2
+        elif self.act == 'atanglu':
+            self.act_fn = ATanGLU()
             filter_size_1 = filter_size * 2
         else:
             raise ValueError(f'{act} is not a valid activation')

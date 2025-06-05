@@ -106,6 +106,7 @@ pitch_prediction_args:
     num_channels: 512
     dropout_rate: 0.0
     use_conditioner_cache: true
+    glu_type: 'atanglu'
 
 variances_prediction_args:
   total_repeat_bins: 48
@@ -120,6 +121,7 @@ variances_prediction_args:
     num_channels: 384
     dropout_rate: 0.0
     use_conditioner_cache: true
+    glu_type: 'atanglu'
 
 lambda_dur_loss: 1.0
 lambda_pitch_loss: 1.0

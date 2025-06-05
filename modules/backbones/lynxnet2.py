@@ -2,14 +2,20 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from modules.commons.common_layers import SinusoidalPosEmb, SwiGLU, Transpose
+from modules.commons.common_layers import SinusoidalPosEmb, SwiGLU, ATanGLU, Transpose
 from utils.hparams import hparams
 
 
 class LYNXNet2Block(nn.Module):
-    def __init__(self, dim, expansion_factor, kernel_size=31, dropout=0.):
+    def __init__(self, dim, expansion_factor, kernel_size=31, dropout=0., glu_type='swiglu'):
         super().__init__()
         inner_dim = int(dim * expansion_factor)
+        if glu_type == 'swiglu':
+            _glu = SwiGLU()
+        elif glu_type == 'atanglu':
+            _glu = ATanGLU()
+        else:
+            raise ValueError(f'{glu_type} is not a valid activation')
         if float(dropout) > 0.:
             _dropout = nn.Dropout(dropout)
         else:
@@ -20,9 +26,9 @@ class LYNXNet2Block(nn.Module):
             nn.Conv1d(dim, dim, kernel_size=kernel_size, padding=kernel_size // 2, groups=dim),
             Transpose((1, 2)),
             nn.Linear(dim, inner_dim * 2),
-            SwiGLU(),
+            _glu,
             nn.Linear(inner_dim, inner_dim * 2),
-            SwiGLU(),
+            _glu,
             nn.Linear(inner_dim, dim),
             _dropout
         )
@@ -33,7 +39,7 @@ class LYNXNet2Block(nn.Module):
 
 class LYNXNet2(nn.Module):
     def __init__(self, in_dims, n_feats, *, num_layers=6, num_channels=512, expansion_factor=1, kernel_size=31,
-                 dropout=0.0, use_conditioner_cache=False):
+                 dropout=0.0, use_conditioner_cache=False, glu_type='swiglu'):
         """
         LYNXNet2(Linear Gated Depthwise Separable Convolution Network Version 2)
         """
@@ -59,7 +65,8 @@ class LYNXNet2(nn.Module):
                     dim=num_channels,
                     expansion_factor=expansion_factor,
                     kernel_size=kernel_size,
-                    dropout=dropout
+                    dropout=dropout,
+                    glu_type=glu_type
                 )
                 for i in range(num_layers)
             ]
