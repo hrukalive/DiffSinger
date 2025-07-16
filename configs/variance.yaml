@@ -76,18 +76,18 @@ pitch_prediction_args:
 
 energy_db_min: -96.0
 energy_db_max: -12.0
-energy_smooth_width: 0.12
+energy_smooth_width: 0.06
 
 breathiness_db_min: -96.0
 breathiness_db_max: -20.0
-breathiness_smooth_width: 0.12
+breathiness_smooth_width: 0.06
 voicing_db_min: -96.0
 voicing_db_max: -12.0
-voicing_smooth_width: 0.12
+voicing_smooth_width: 0.06
 
 tension_logit_min: -10.0
 tension_logit_max: 10.0
-tension_smooth_width: 0.12
+tension_smooth_width: 0.06
 
 variances_prediction_args:
   total_repeat_bins: 48
