@@ -77,6 +77,7 @@ T_start: 0.4
 T_start_infer: 0.4
 K_step: 300
 K_step_infer: 300
+hidden_size: 384
 backbone_type: 'lynxnet2'
 backbone_args:
   num_channels: 1024

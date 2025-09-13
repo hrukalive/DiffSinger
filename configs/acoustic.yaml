@@ -70,7 +70,7 @@ sampling_algorithm: euler
 sampling_steps: 20
 diff_accelerator: ddim
 diff_speedup: 10
-hidden_size: 256
+hidden_size: 384
 backbone_type: 'lynxnet2'
 backbone_args:
   num_channels: 1024

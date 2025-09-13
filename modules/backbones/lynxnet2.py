@@ -39,7 +39,7 @@ class LYNXNet2Block(nn.Module):
 
 class LYNXNet2(nn.Module):
     def __init__(self, in_dims, n_feats, *, num_layers=6, num_channels=512, expansion_factor=1, kernel_size=31,
-                 dropout=0.0, use_conditioner_cache=False, glu_type='swiglu'):
+                 dropout_rate=0.0, use_conditioner_cache=False, glu_type='swiglu'):
         """
         LYNXNet2(Linear Gated Depthwise Separable Convolution Network Version 2)
         """
@@ -65,7 +65,7 @@ class LYNXNet2(nn.Module):
                     dim=num_channels,
                     expansion_factor=expansion_factor,
                     kernel_size=kernel_size,
-                    dropout=dropout,
+                    dropout=dropout_rate,
                     glu_type=glu_type
                 )
                 for i in range(num_layers)

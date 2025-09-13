@@ -74,7 +74,7 @@ class LYNXNetResidualLayer(nn.Module):
 
 class LYNXNet(nn.Module):
     def __init__(self, in_dims, n_feats, *, num_layers=6, num_channels=512, expansion_factor=2, kernel_size=31,
-                 activation='PReLU', dropout=0.0, strong_cond=False):
+                 activation='PReLU', dropout_rate=0.0, strong_cond=False):
         """
         LYNXNet(Linear Gated Depthwise Separable Convolution Network)
         TIPS:You can control the style of the generated results by modifying the 'activation', 
@@ -100,7 +100,7 @@ class LYNXNet(nn.Module):
                     expansion_factor=expansion_factor,
                     kernel_size=kernel_size,
                     activation=activation,
-                    dropout=dropout
+                    dropout=dropout_rate
                 )
                 for i in range(num_layers)
             ]
