@@ -10,7 +10,8 @@ from basics.base_module import CategorizedModule
 from modules.aux_decoder import AuxDecoderAdaptor
 from modules.commons.common_layers import (
     XavierUniformInitLinear as Linear,
-    NormalInitEmbedding as Embedding
+    NormalInitEmbedding as Embedding,
+    SinusoidalPosEmb
 )
 from modules.core import (
     GaussianDiffusion, PitchDiffusion, MultiVarianceDiffusion,
@@ -18,7 +19,7 @@ from modules.core import (
 )
 from modules.fastspeech.acoustic_encoder import FastSpeech2Acoustic
 from modules.fastspeech.param_adaptor import ParameterAdaptorModule
-from modules.fastspeech.tts_modules import RhythmRegulator, LengthRegulator
+from modules.fastspeech.tts_modules import RhythmRegulator, LengthRegulator, StretchRegulator
 from modules.fastspeech.variance_encoder import FastSpeech2Variance, MelodyEncoder
 from utils.hparams import hparams
 
@@ -132,6 +133,18 @@ class DiffSingerVariance(CategorizedModule, ParameterAdaptorModule):
         ParameterAdaptorModule.__init__(self)
         self.predict_dur = hparams['predict_dur']
         self.predict_pitch = hparams['predict_pitch']
+
+        self.use_stretch_embed = hparams.get('use_stretch_embed', None)
+        assert self.use_stretch_embed is not None, "You may be loading an old version of the model checkpoint, which is incompatible with the new version due to some bug fixes. It is recommended to roll back to the old version (commit id: 6df0ee977c3728f14cb79c2db8b19df30b23a0bf)"
+        if self.use_stretch_embed and (self.predict_pitch or self.predict_variances):
+            self.sr = StretchRegulator()
+            self.stretch_embed = nn.Sequential(
+                SinusoidalPosEmb(hparams['hidden_size']),
+                nn.Linear(hparams['hidden_size'], hparams['hidden_size'] * 4),
+                nn.GELU(),
+                nn.Linear(hparams['hidden_size'] * 4, hparams['hidden_size']),
+            )
+            self.stretch_embed_rnn = nn.GRU(hparams['hidden_size'], hparams['hidden_size'], 1, batch_first=True)
 
         self.use_spk_id = hparams['use_spk_id']
         if self.use_spk_id:
@@ -255,6 +268,19 @@ class DiffSingerVariance(CategorizedModule, ParameterAdaptorModule):
         mel2ph_ = mel2ph[..., None].repeat([1, 1, hparams['hidden_size']])
         condition = torch.gather(encoder_out, 1, mel2ph_)
 
+        if self.use_stretch_embed:
+            stretch = torch.round(1000 * self.sr(mel2ph, ph_dur))
+            if self.training and stretch.numel() > 1000:
+                # construct a phoneme stretching index lookup table with a total of 1001 indexes (0~1000)
+                table = self.stretch_embed(torch.arange(0, 1001, device=stretch.device))
+                stretch_embed = torch.index_select(table, 0, stretch.view(-1).long()).view_as(condition)
+            else:
+                stretch_embed = self.stretch_embed(stretch)
+            condition += stretch_embed
+            self.stretch_embed_rnn.flatten_parameters()
+            stretch_embed_rnn_out, _ = self.stretch_embed_rnn(condition)
+            condition = condition + stretch_embed_rnn_out
+            
         if self.use_spk_id:
             condition += spk_embed
 
@@ -326,7 +352,7 @@ class DiffSingerVariance(CategorizedModule, ParameterAdaptorModule):
 
         if variance_retake is not None:
             variance_embeds = [
-                self.variance_embeds[v_name](v_input[:, :, None]) * ~variance_retake[v_name][:, :, None] * self.variance_retake_scaling[v_name]
+                self.variance_embeds[v_name](v_input[:, :, None] * self.variance_retake_scaling[v_name]) * ~variance_retake[v_name][:, :, None]
                 for v_name, v_input in zip(self.variance_prediction_list, variance_inputs)
             ]
             var_cond += torch.stack(variance_embeds, dim=-1).sum(-1)

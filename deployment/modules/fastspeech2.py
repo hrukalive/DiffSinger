@@ -73,6 +73,7 @@ class FastSpeech2AcousticONNX(FastSpeech2Acoustic):
         txt_embed = self.txt_embed(tokens)
         durations = durations * (tokens > 0)
         mel2ph = self.lr(durations)
+        _mel2ph = mel2ph
         f0 = f0 * (mel2ph > 0)
         mel2ph = mel2ph[..., None].repeat((1, 1, hparams['hidden_size']))
         if self.use_variance_scaling:
@@ -92,6 +93,14 @@ class FastSpeech2AcousticONNX(FastSpeech2Acoustic):
         encoded = F.pad(encoded, (0, 0, 1, 0))
         condition = torch.gather(encoded, 1, mel2ph)
 
+        if self.use_stretch_embed:
+            stretch = torch.round(1000 * self.sr(_mel2ph, durations))
+            table = self.stretch_embed(torch.arange(0, 1001, device=stretch.device))
+            stretch_embed = torch.index_select(table, 0, stretch.view(-1).long()).view_as(condition)
+            condition += stretch_embed
+            stretch_embed_rnn_out, _ = self.stretch_embed_rnn(condition)
+            condition += stretch_embed_rnn_out
+
         if self.f0_embed_type == 'discrete':
             pitch = f0_to_coarse(f0)
             pitch_embed = self.pitch_embed(pitch)
@@ -102,30 +111,27 @@ class FastSpeech2AcousticONNX(FastSpeech2Acoustic):
 
         if self.use_variance_embeds:
             variance_embeds = torch.stack([
-                self.variance_embeds[v_name](variances[v_name][:, :, None]) 
-                * self.variance_scaling_factor[v_name]
+                self.variance_embeds[v_name](variances[v_name][:, :, None] * self.variance_scaling_factor[v_name])
                 for v_name in self.variance_embed_list
             ], dim=-1).sum(-1)
             condition += variance_embeds
 
         if hparams['use_key_shift_embed']:
             if hasattr(self, 'frozen_key_shift'):
-                key_shift_embed = self.key_shift_embed(self.frozen_key_shift[:, None, None])
+                key_shift_embed = self.key_shift_embed(self.frozen_key_shift[:, None, None] * self.variance_scaling_factor['key_shift'])
             else:
                 gender = torch.clip(gender, min=-1., max=1.)
                 gender_mask = (gender < 0.).float()
                 key_shift = gender * ((1. - gender_mask) * self.shift_max + gender_mask * abs(self.shift_min))
-                key_shift_embed = self.key_shift_embed(key_shift[:, :, None])
-            key_shift_embed *= self.variance_scaling_factor['key_shift']
+                key_shift_embed = self.key_shift_embed(key_shift[:, :, None] * self.variance_scaling_factor['key_shift'])
             condition += key_shift_embed
 
         if hparams['use_speed_embed']:
             if velocity is not None:
                 velocity = torch.clip(velocity, min=self.speed_min, max=self.speed_max)
-                speed_embed = self.speed_embed(velocity[:, :, None])
+                speed_embed = self.speed_embed(velocity[:, :, None] * self.variance_scaling_factor['speed'])
             else:
-                speed_embed = self.speed_embed(torch.FloatTensor([1.]).to(condition.device)[:, None, None])
-            speed_embed *= self.variance_scaling_factor['speed']
+                speed_embed = self.speed_embed(torch.FloatTensor([1.]).to(condition.device)[:, None, None] * self.variance_scaling_factor['speed'])
             condition += speed_embed
 
         if hparams['use_spk_id']:

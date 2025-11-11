@@ -211,14 +211,22 @@ class DiffSingerVarianceONNX(DiffSingerVariance):
     def forward_dur_predictor(self, encoder_out, x_masks, ph_midi, spk_embed=None):
         return self.fs2.forward_dur_predictor(encoder_out, x_masks, ph_midi, spk_embed=spk_embed)
 
-    def forward_mel2x_gather(self, x_src, x_dur, x_dim=None):
+    def forward_mel2x_gather(self, x_src, x_dur, x_dim=None, check_stretch_embed=False):
         mel2x = self.lr(x_dur)
+        _mel2x = mel2x
         if x_dim is not None:
             x_src = F.pad(x_src, [0, 0, 1, 0])
             mel2x = mel2x[..., None].repeat([1, 1, x_dim])
         else:
             x_src = F.pad(x_src, [1, 0])
         x_cond = torch.gather(x_src, 1, mel2x)
+        if self.use_stretch_embed and check_stretch_embed:
+            stretch = torch.round(1000 * self.sr(_mel2x, x_dur))
+            table = self.stretch_embed(torch.arange(0, 1001, device=stretch.device))
+            stretch_embed = torch.index_select(table, 0, stretch.view(-1).long()).view_as(x_cond)
+            x_cond += stretch_embed
+            stretch_embed_rnn_out, _ = self.stretch_embed_rnn(x_cond)
+            x_cond += stretch_embed_rnn_out
         return x_cond
 
     def forward_pitch_preprocess(
@@ -226,7 +234,7 @@ class DiffSingerVarianceONNX(DiffSingerVariance):
             note_midi=None, note_rest=None, note_dur=None, note_glide=None,
             pitch=None, expr=None, retake=None, spk_embed=None
     ):
-        condition = self.forward_mel2x_gather(encoder_out, ph_dur, x_dim=self.hidden_size)
+        condition = self.forward_mel2x_gather(encoder_out, ph_dur, x_dim=self.hidden_size, check_stretch_embed=True)
         if self.use_melody_encoder:
             if self.melody_encoder.use_glide_embed and note_glide is None:
                 note_glide = torch.LongTensor([[0]]).to(encoder_out.device)
@@ -280,7 +288,7 @@ class DiffSingerVarianceONNX(DiffSingerVariance):
             self, encoder_out, ph_dur, pitch,
             variances: dict = None, retake=None, spk_embed=None
     ):
-        condition = self.forward_mel2x_gather(encoder_out, ph_dur, x_dim=self.hidden_size)
+        condition = self.forward_mel2x_gather(encoder_out, ph_dur, x_dim=self.hidden_size, check_stretch_embed=True)
         if self.use_variance_scaling:
             variance_cond = condition + self.pitch_embed(pitch[:, :, None] / 12)
         else:
@@ -290,7 +298,7 @@ class DiffSingerVarianceONNX(DiffSingerVariance):
             for v_retake in (~retake).split(1, dim=2)
         ]
         variance_embeds = [
-            self.variance_embeds[v_name](variances[v_name][:, :, None]) * v_masks * self.variance_retake_scaling[v_name]
+            self.variance_embeds[v_name](variances[v_name][:, :, None] * self.variance_retake_scaling[v_name]) * v_masks
             for v_name, v_masks in zip(self.variance_prediction_list, non_retake_masks)
         ]
         variance_cond += torch.stack(variance_embeds, dim=-1).sum(-1)
