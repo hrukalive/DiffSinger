@@ -153,7 +153,7 @@ class VarianceBinarizer(BaseBinarizer):
                     'lang_seq': [
                         (
                             self.lang_map[lang if '/' not in p else p.split('/', maxsplit=1)[0]]
-                            if self.phoneme_dictionary.is_cross_lingual(p)
+                            if self.phoneme_dictionary.is_cross_lingual(p if '/' in p else f'{lang}/{p}')
                             else 0
                         )
                         for p in utterance_label['ph_seq'].split()
