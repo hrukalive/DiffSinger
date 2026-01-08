@@ -49,6 +49,7 @@ VARIANCE_ITEM_ATTRIBUTES = [
     'voicing',  # frame-level RMS of harmonic parts (dB), float32[T_s,]
     'tension',  # frame-level tension (logit), float32[T_s,]
 ]
+WAV_CANDIDATE_EXTENSIONS = ['.wav', '.flac']
 DS_INDEX_SEP = '#'
 
 # These operators are used as global variables due to a PyTorch shared memory bug on Windows platforms.
@@ -129,13 +130,26 @@ class VarianceBinarizer(BaseBinarizer):
                         raise ValueError(f'Missing required attribute {attr} of item \'{item_name}\'.')
                     return value
 
+                wav_fn = None
+                for ext in WAV_CANDIDATE_EXTENSIONS:
+                    candidate_fn = raw_data_dir / 'wavs' / f'{item_name}{ext}'
+                    if candidate_fn.exists():
+                        wav_fn = candidate_fn
+                        break
+                if wav_fn is None and not self.prefer_ds:
+                    raise FileNotFoundError(
+                        f'Waveform file not found for item \'{item_name}\'. '
+                        f'Candidate extensions: {WAV_CANDIDATE_EXTENSIONS}\n'
+                        f'If you are using DS files instead of waveform files, please set \'prefer_ds\' to true.'
+                    )
+
                 temp_dict = {
                     'ds_idx': item_idx,
                     'spk_id': self.spk_map[spk],
                     'spk_name': spk,
                     'language_id': self.lang_map[lang],
                     'language_name': lang,
-                    'wav_fn': str(raw_data_dir / 'wavs' / f'{item_name}.wav'),
+                    'wav_fn': str(wav_fn) if wav_fn is not None else None,
                     'lang_seq': [
                         (
                             self.lang_map[lang if '/' not in p else p.split('/', maxsplit=1)[0]]
@@ -288,10 +302,8 @@ class VarianceBinarizer(BaseBinarizer):
             processed_input['mel2ph'] = mel2ph.cpu().numpy()
 
         # Below: extract actual f0, convert to pitch and calculate delta pitch
-        if pathlib.Path(meta_data['wav_fn']).exists():
+        if meta_data['wav_fn'] is not None:
             waveform, _ = librosa.load(meta_data['wav_fn'], sr=hparams['audio_sample_rate'], mono=True)
-        elif not self.prefer_ds:
-            raise FileNotFoundError(meta_data['wav_fn'])
         else:
             waveform = None
 
