@@ -144,7 +144,7 @@ class DiffSingerAcousticExporter(BaseExporter):
             'use_lang_id': self.use_lang_id,
             'acoustic': f'{model_name}.onnx',
             'hidden_size': hparams['hidden_size'],
-            'vocoder': 'nsf_hifigan_44.1k_hop512_128bin_2024.02',
+            'vocoder': 'pc_nsf_hifigan_44.1k_hop512_128bin_2025.02',
         }
         # multi-speaker
         if len(self.export_spk) > 0:
