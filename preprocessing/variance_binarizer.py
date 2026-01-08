@@ -331,7 +331,7 @@ class VarianceBinarizer(BaseBinarizer):
         if uv.all():  # All unvoiced
             print(f'Skipped \'{item_name}\': empty gt f0')
             return None
-        pitch = torch.from_numpy(librosa.hz_to_midi(f0.astype(np.float32))).to(self.device)
+        pitch = torch.from_numpy(librosa.hz_to_midi(f0.astype(np.float32)).astype(np.float32)).to(self.device)
 
         if hparams['predict_dur']:
             ph_num = torch.LongTensor(meta_data['ph_num']).to(self.device)
