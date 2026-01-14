@@ -59,8 +59,11 @@ class BaseBinarizer:
         self.spk_ids = None
         self.build_spk_map()
 
+        self.transcription_file = [ds.get('transcription_file', 'transcriptions.csv') for ds in self.datasets]
+
         self.lang_map = {}
         self.dictionaries = hparams['dictionaries']
+        self.ph_maps = hparams.get('ph_maps', dict())
         self.build_lang_map()
 
         self.items = {}
@@ -103,6 +106,15 @@ class BaseBinarizer:
 
         for lang_id, lang_name in enumerate(sorted(self.dictionaries.keys()), start=1):
             self.lang_map[lang_name] = lang_id
+        tmp_ph_maps = {}
+        for lang_name, ph_map_f in self.ph_maps.items():
+            ph_map = {}
+            with open(ph_map_f, 'r', encoding='utf-8') as f:
+                for l in f:
+                    orig, repl = l.strip().split()
+                    ph_map[orig] = repl
+            tmp_ph_maps[lang_name] = ph_map
+        self.ph_maps = tmp_ph_maps
 
         print("| lang_map: ", self.lang_map)
 
@@ -288,6 +300,8 @@ class BaseBinarizer:
         total_sec = {k: 0.0 for k in self.spk_map}
         total_raw_sec = {k: 0.0 for k in self.spk_map}
         extra_info = {'names': {}, 'ph_texts': {}, 'spk_ids': {}, 'spk_names': {}, 'lengths': {}}
+        var_min = {}
+        var_max = {}
         max_no = -1
 
         for item_name, meta_data in self.meta_data_iterator(prefix):
@@ -305,6 +319,12 @@ class BaseBinarizer:
                 if isinstance(v, np.ndarray):
                     if k not in extra_info:
                         extra_info[k] = {}
+                    if k not in var_min or k not in var_max:
+                        var_min[k] = np.min(v)
+                        var_max[k] = np.max(v)
+                    else:
+                        var_min[k] = min(var_min[k], np.min(v))
+                        var_max[k] = max(var_max[k], np.max(v))
                     extra_info[k][item_no] = v.shape[0]
             extra_info['names'][item_no] = _item['name'].split(':', 1)[-1]
             extra_info['ph_texts'][item_no] = _item['ph_text']
@@ -355,6 +375,10 @@ class BaseBinarizer:
             extra_info.pop("names")
             extra_info.pop('ph_texts')
             extra_info.pop("spk_names")
+        extra_info['total_raw_sec'] = total_raw_sec
+        extra_info['total_sec'] = total_sec
+        extra_info['var_min'] = var_min
+        extra_info['var_max'] = var_max
         with open(self.binary_data_dir / f"{prefix}.meta", "wb") as f:
             # noinspection PyTypeChecker
             pickle.dump(extra_info, f)
@@ -375,6 +399,8 @@ class BaseBinarizer:
         else:
             print(f"| {prefix} total duration: {sum(total_raw_sec.values()):.2f}s")
             print(f"| {prefix} respective duration: " + ', '.join(f'{k}={v:.2f}s' for k, v in total_raw_sec.items()))
+        for k in var_min:
+            print(f"| {prefix} {k} range: {var_min[k]:.6f} ~ {var_max[k]:.6f}")
 
     def arrange_data_augmentation(self, data_iterator):
         """
