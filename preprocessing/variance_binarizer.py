@@ -113,12 +113,12 @@ class VarianceBinarizer(BaseBinarizer):
     def load_meta_data(self, raw_data_dir: pathlib.Path, ds_id, spk, lang):
         meta_data_dict = {}
 
-        with open(raw_data_dir / 'transcriptions.csv', 'r', encoding='utf8') as f:
+        with open(raw_data_dir / self.transcription_file[ds_id], 'r', encoding='utf8') as f:
             for utterance_label in csv.DictReader(f):
                 utterance_label: dict
                 item_name = utterance_label['name']
                 item_idx = int(item_name.rsplit(DS_INDEX_SEP, maxsplit=1)[-1]) if DS_INDEX_SEP in item_name else 0
-
+                utterance_label['ph_seq'] = ' '.join([self.ph_maps.get(lang, {}).get(ph, ph) for ph in utterance_label['ph_seq'].split()])
                 def require(attr, optional=False):
                     if self.prefer_ds:
                         value = self.load_attr_from_ds(ds_id, item_name, attr, item_idx)
@@ -374,6 +374,8 @@ class VarianceBinarizer(BaseBinarizer):
                 processed_input['note_glide'] = np.array([
                     self.glide_map.get(x, 0) for x in meta_data['note_glide']
                 ], dtype=np.int64)
+                if len(processed_input['note_midi']) != len(processed_input['note_glide']):
+                    raise ValueError(f'{item_name}: length mismatch between note_midi and note_glide')
 
             # Below:
             # 1. Get the frame-level MIDI pitch, which is a step function curve

@@ -135,12 +135,65 @@ def set_hparams(config='', exp_name='', hparams_str='', print_hparams=True, glob
     def print_out_hparams():
         global global_print_hparams
         if mp_is_main_process and print_hparams and global_print_hparams and global_hparams:
-            print('| Hparams chains: ', config_chains)
-            print('| Hparams: ')
-            for i, (k, v) in enumerate(sorted(hparams_.items())):
-                print(f"\033[0;33m{k}\033[0m: {v}, ", end="\n" if i % 5 == 4 else "")
-            print("")
-            global_print_hparams = False
+            try:
+                from rich.console import Console
+                from rich.table import Table
+                from rich.pretty import Pretty, pretty_repr
+                from rich.text import Text
+                from rich.columns import Columns
+                print('| Hparams chains: ', config_chains)
+                hparam_table = Table(
+                    title='Hparams',
+                    min_width=110,
+                    show_header=False,
+                    show_edge=True,
+                    show_lines=True
+                )
+                normal_item = []
+                complex_item = []
+                num_cols = 5
+                num_rows = -(-len(hparams) // num_cols)
+                table_rows = [[] for _ in range(num_rows)]
+                for i, (k, v) in enumerate(sorted(hparams_.items())):
+                    if isinstance(v, (int, float, str, bool)):
+                        normal_item.append((k, v))
+                    else:
+                        tmp_repr = pretty_repr(v, indent_size=2, expand_all=True)
+                        if len(tmp_repr.split('\n')) < 2:
+                            normal_item.append((k, v))
+                        else:
+                            complex_item.append((k, (v, len(tmp_repr), len(tmp_repr.split('\n')))))
+                cnt_i = 0
+                for k, v in normal_item:
+                    table_rows[cnt_i // num_cols].append(
+                        Columns([
+                            Text(f'{k}:', style='italic'),
+                            Pretty(v, indent_size=2, overflow='fold')
+                        ])
+                    )
+                    cnt_i += 1
+                complex_item.sort(key=lambda x: x[1][1])
+                complex_item.sort(key=lambda x: x[0])
+                complex_item.sort(key=lambda x: x[1][1])
+                for k, (v, _, _) in complex_item:
+                    table_rows[cnt_i // num_cols].append(
+                        Columns([
+                            Text(f'{k}:', style='italic'),
+                            Pretty(v, indent_size=2, overflow='fold')
+                        ])
+                    )
+                    cnt_i += 1
+                for r in table_rows:
+                    hparam_table.add_row(*r)
+                console = Console()
+                console.print(hparam_table)
+            except ImportError:
+                print('| Hparams chains: ', config_chains)
+                print('| Hparams: ')
+                for i, (k, v) in enumerate(sorted(hparams_.items())):
+                    print(f"\033[0;33m{k}\033[0m: {v}, ", end="\n" if i % 5 == 4 else "")
+                print("")
+                global_print_hparams = False
     print_out_hparams()
     
     return hparams_
